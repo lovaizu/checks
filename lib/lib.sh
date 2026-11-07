@@ -100,12 +100,13 @@ check_japanese() {
   local file="$1" lines="$2" label="$3" lint out found japanese
   # lint.py reads only the lines that are mostly Japanese. An English line
   # with a Japanese name in it, such as ⌘英かな, stays out, as lint.py
-  # would read it as Japanese and judge the English.
+  # would read it as Japanese and judge the English. The last line counts
+  # too when no newline ends it.
   made=$((made + 1))
   japanese="$work/mostly-japanese-$made.md"
   jq -Rsr '
     def count(re): [scan(re)] | length;
-    split("\n")[:-1][] |
+    rtrimstr("\n") | split("\n")[] |
     if count("[\\p{Hiragana}\\p{Katakana}\\p{Han}]") > count("[A-Za-z]") then . else "" end' "$file" >"$japanese"
   if ! jq -Rse --argjson lines "$lines" '
     split("\n") as $all | (if $lines == null then $all else [$lines[] | $all[. - 1]] end) |
