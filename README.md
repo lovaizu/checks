@@ -1,4 +1,4 @@
-# checks
+# Lovaizu checks
 
 The checks that lovaizu repositories share. Each repository names this one in its `lefthook.yml`, and gets the same checks before each commit and in CI.
 

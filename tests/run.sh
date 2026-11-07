@@ -1,8 +1,8 @@
 #!/bin/bash
 # Runs prose.sh on each file of tests/cases, whose name says the result that
 # the check must give: a file named pass-* has no finding, and a file named
-# fail-* has the finding that its first line names. A file named *-commit is
-# read as a commit message. A check must fail where
+# fail-* has the finding that its first line names. The check reads a
+# file named *-commit as a commit message. A check must fail where
 # it should, or it passes everything.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,11 +15,11 @@ for file in "$here"/cases/*; do
   out="$("$here/../prose.sh" "${flag[@]}" "$file" 2>&1)"
   status=$?
   case "$name" in
-    pass-*) [ "$status" -eq 0 ] || { echo "FAIL $name: a finding where none was expected:"; echo "$out"; failed=1; } ;;
+    pass-*) [ "$status" -eq 0 ] || { echo "Failed: $name should pass, but the check found:"; echo "$out"; failed=1; } ;;
     fail-*)
       want="$(head -n 1 "$file" | sed -E 's/.*expect: ([^ ]+).*/\1/')"
       if [ "$status" -ne 1 ] || ! grep -qF -- "$want" <<<"$out"; then
-        echo "FAIL $name: expected $want, got (exit $status):"; echo "$out"; failed=1
+        echo "Failed: $name should fail with $want, but the check exited $status with:"; echo "$out"; failed=1
       fi
       ;;
   esac
