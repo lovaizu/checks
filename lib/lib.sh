@@ -1,11 +1,16 @@
-# The checks of prose.sh, which other scripts can source too. English is
-# checked by Vale with the Google developer documentation style. Japanese is
-# checked by lint.py of the skill natural-japanese. Each check adds its
-# findings to $report and the reasons that it could not run to $notes.
-# setup.sh must have run first, as prose.sh runs it.
+# The checks of prose.sh. Another script, such as a hook of Claude Code,
+# can source this file and call check_prose, check_english or
+# check_japanese. Vale checks the English with the Google developer
+# documentation style, and lint.py of the skill natural-japanese checks the
+# Japanese. Each check adds its findings to $report and the reasons that it
+# couldn't run to $notes. Run setup.sh first, as prose.sh does.
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$root/lib/paths.sh"
+# The tools of mise.toml, and the Google style where Vale looks for it.
+eval "$(mise -C "$root" env -s bash)"
+VALE_STYLES_PATH="$(mise -C "$root" where http:vale-google)"
+export VALE_STYLES_PATH
 report=""
 notes=()
 work="$(mktemp -d)"

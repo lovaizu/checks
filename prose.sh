@@ -10,10 +10,6 @@ set -uo pipefail
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 "$here/setup.sh" || exit 1
 . "$here/lib/lib.sh"
-# The tools of mise.toml, and the Google style where Vale looks for it.
-eval "$(mise -C "$root" env -s bash)"
-VALE_STYLES_PATH="$(mise -C "$root" where http:vale-google)"
-export VALE_STYLES_PATH
 
 message=""
 if [ "${1:-}" = --message ]; then
