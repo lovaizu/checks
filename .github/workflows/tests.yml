@@ -1,0 +1,17 @@
+name: Tests
+
+on: push
+
+# The checks only read the repository, so the token can change nothing.
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The action itself, as another repository runs it: the checks of
+      # lefthook.yml on every file.
+      - uses: ./
+      - run: tests/run.sh

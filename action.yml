@@ -1,0 +1,18 @@
+name: lovaizu checks
+description: Runs on every file the pre-commit checks that the lefthook.yml of the repository names.
+# An action, not a reusable workflow, as only an action knows the commit of
+# this repository that it runs from: github.action_path. Its mise.toml is
+# the one that installs the tools.
+runs:
+  using: composite
+  steps:
+    - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      with:
+        version: 2026.11.3
+        working_directory: ${{ github.action_path }}
+      env:
+        MISE_TRUSTED_CONFIG_PATHS: ${{ github.action_path }}/mise.toml
+    - shell: bash
+      env:
+        NO_COLOR: "1"
+      run: lefthook run pre-commit --all-files --no-auto-install

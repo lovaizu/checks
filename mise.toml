@@ -1,0 +1,12 @@
+[tools]
+jq = "1.8.2"
+vale = "3.25.1"
+shfmt = "3.14.1"
+uv = "0.13.7"
+lefthook = "2.2.2"
+
+[tools."http:vale-google"]
+version = "0.7.1"
+url = "https://github.com/vale-cli/Google/releases/download/v{{ version }}/Google.zip"
+checksum = "sha256:4b67fca1f2a88595b2a578ab98bbf3017a23af677b04f93e862843f3ea1a9a0b"
+strip_components = 0

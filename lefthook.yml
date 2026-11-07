@@ -1,0 +1,8 @@
+# The checks of this repository: the same ones that it shares. The cases of
+# tests/cases have findings on purpose, so the check leaves them out.
+extends:
+  - hooks.yml
+
+pre-commit:
+  exclude:
+    - "tests/cases/*"
