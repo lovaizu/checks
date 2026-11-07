@@ -15,4 +15,4 @@ runs:
     - shell: bash
       env:
         NO_COLOR: "1"
-      run: lefthook run pre-commit --all-files --no-auto-install
+      run: bash "$GITHUB_ACTION_PATH/ci.sh"
