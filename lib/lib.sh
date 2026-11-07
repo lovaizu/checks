@@ -174,9 +174,13 @@ other_prose() {
   case "$name" in
     *.sh | *.bash | *.zsh) ;;
     *.json)
-      jq -r '[.. | objects | .description? | strings] | .[]' "$file" 2>/dev/null |
-        while IFS= read -r text; do
-          jq -n --arg text "$text" --argjson line "$(grep -nF -m 1 -- "$text" "$file" | cut -d: -f1)" '{line: $line, text: $text}'
+      # The file escapes a quote or a newline in a description, so the
+      # check looks for each one as JSON writes it. A line break in the text
+      # becomes a space, so that the text stays on its one line.
+      jq -c '.. | objects | .description? | strings' "$file" 2>/dev/null |
+        while IFS= read -r encoded; do
+          line="$(grep -nF -m 1 -- "${encoded:1:${#encoded}-2}" "$file" | cut -d: -f1)"
+          jq -n --argjson text "$encoded" --argjson line "${line:-null}" '{line: $line, text: ($text | gsub("\n"; " "))}'
         done | jq -s .
       return
       ;;
@@ -217,6 +221,9 @@ check_prose() {
     fi
   fi
   prose="$(other_prose "$file")"
+  if jq -e 'any(.[]; .line == null)' <<<"$prose" >/dev/null 2>&1; then
+    notes+=("The check couldn't find the line of a description in $file, so it didn't check that description. Fix: write it as jq -c writes it, with no \\u or \\/ escape.")
+  fi
   if [ -n "$prose" ] && [ "$prose" != "[]" ]; then
     text="$(at_lines "$file" "$prose")"
     check_english "$text" md "$config" "$lines" "the messages in $file"

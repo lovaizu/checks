@@ -17,7 +17,7 @@ for file in "$here"/cases/*; do
   case "$name" in
     pass-*) [ "$status" -eq 0 ] || { echo "Failed: $name should pass, but the check found:"; echo "$out"; failed=1; } ;;
     fail-*)
-      want="$(head -n 1 "$file" | sed -E 's/.*expect: ([^ ]+).*/\1/')"
+      want="$(head -n 1 "$file" | sed -E 's/.*expect: ([^ ",]+).*/\1/')"
       if [ "$status" -ne 1 ] || ! grep -qF -- "$want" <<<"$out"; then
         echo "Failed: $name should fail with $want, but the check exited $status with:"; echo "$out"; failed=1
       fi
