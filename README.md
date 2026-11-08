@@ -9,7 +9,14 @@ The checks that lovaizu repositories share. Each repository names this one in it
 - English, by [Vale](https://vale.sh) with the [Google developer documentation style](https://developers.google.com/style).
 - Japanese, by `lint.py` of the skill [natural-japanese](https://github.com/coji/natural-japanese).
 
-It reads all the text of Markdown, plain text and HTML, the comments of code, the messages of shell scripts, and the descriptions of JSON files. It checks each commit message too.
+It reads all the text of each file that it gets:
+
+- Markdown, plain text and HTML: all the text but code, as Vale reads it.
+- Code: the comments, and the messages of a shell script.
+- JSON, YAML and `.toml` files: every string value, and the comments.
+- Any other text file: all of it, as plain text.
+
+It checks each commit message too, but the lines that git leaves out and the trailers, such as `Co-Authored-By`. A binary file, such as an image, holds no text to read.
 
 ## Use it in a repository
 
@@ -21,11 +28,6 @@ remotes:
     ref: v0.1.0
     configs:
       - hooks.yml
-
-# Files that the checks leave out, such as notes that are not kept.
-pre-commit:
-  exclude:
-    - "notes/**"
 ```
 
 Run `lefthook install` once in each clone. In CI, add this step after `actions/checkout`, at the commit of the same tag:
@@ -35,6 +37,29 @@ Run `lefthook install` once in each clone. In CI, add this step after `actions/c
 ```
 
 The first run installs the tools of `mise.toml` with the sha256 of `mise.lock`, and natural-japanese and its Python packages into `~/.cache/lovaizu-checks`.
+
+## Leave text out
+
+A repository leaves out the text that it doesn't want the checks to read.
+
+To leave out a file, name it in `exclude` of `pre-commit` in `lefthook.yml`:
+
+```yaml
+pre-commit:
+  exclude:
+    - "notes/**"
+    - LICENSE
+```
+
+To leave out a pattern, such as a word of code, write a `.vale.ini` of your own. Vale uses it, in place of the one of the checks, for each file in its directory and below. Give it the Google style, and the pattern in [`TokenIgnores`](https://vale.sh/docs/keys/tokenignores) or [`BlockIgnores`](https://vale.sh/docs/keys/blockignores):
+
+```ini
+[*]
+BasedOnStyles = Google
+TokenIgnores = ubuntu-latest
+```
+
+Keep the patterns under `[*]`. The checks give Vale the string values of a file and the messages of a shell script in a Markdown file of their own, so a section for a file type doesn't apply to them. lint.py doesn't read `.vale.ini`, so leave out a file to skip its Japanese.
 
 ## Change the checks
 

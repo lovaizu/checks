@@ -1,11 +1,9 @@
 #!/bin/bash
 # Checks the prose of each file given, and fails on any finding: English by
 # Vale with the Google developer documentation style, and Japanese by lint.py
-# of the skill natural-japanese. It reads all the text of Markdown, plain text
-# and HTML, the comments of code, the messages of shell scripts, and the
-# descriptions of JSON files. It takes the paths of the files, after
-# --message when they're commit messages. A check that can't run fails too,
-# as it would let a finding through.
+# of the skill natural-japanese. README.md says what text it reads. It takes
+# the paths of the files, after --message when they're commit messages. A
+# check that can't run fails too, as it would let a finding through.
 set -uo pipefail
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 "$here/setup.sh" || exit 1
