@@ -13,8 +13,8 @@ It reads all the text of each file that it gets:
 
 - Markdown, plain text and HTML: all the text but code, as Vale reads it.
 - SVG: the text that the figure shows, such as `<title>`, `<desc>` and `<text>`, but none of its markup or style.
-- Code: the comments, and the messages of a shell script.
-- JSON, YAML and `.toml` files: every string value, and the comments.
+- Code: the comments, and the messages of a shell script. A span in backticks in a comment reads as code, as it does in Markdown.
+- JSON, YAML and `.toml` files: every string value, and the comments. The `run` of a step in a GitHub workflow or action reads as a shell script, unless the step names another shell.
 - Any other text file: all of it, as plain text.
 - A chezmoi template, such as a file named `*.tmpl`: as the format of its name without `.tmpl`, and the comments `{{/* ... */}}` too.
 
@@ -61,7 +61,7 @@ BasedOnStyles = Google
 TokenIgnores = ubuntu-latest
 ```
 
-Keep the patterns under `[*]`. The checks give Vale the string values of a file and the messages of a shell script in a Markdown file of their own, so a section for a file type doesn't apply to them. lint.py doesn't read `.vale.ini`, so leave out a file to skip its Japanese.
+A pattern applies to the comments of code too. Keep the patterns under `[*]`. The checks give Vale the comments, the string values of a file and the messages of a shell script in a Markdown file of their own, so a section for a file type doesn't apply to them. lint.py doesn't read `.vale.ini`, so leave out a file to skip its Japanese.
 
 ## Change the checks
 

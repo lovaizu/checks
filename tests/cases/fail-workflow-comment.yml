@@ -1,0 +1,8 @@
+# expect: Google.Latin
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          # Use a tool, e.g. Vale.
+          tests/run.sh

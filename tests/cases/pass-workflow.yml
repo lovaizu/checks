@@ -1,0 +1,11 @@
+# A workflow, whose steps hold shell scripts.
+on: push
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          # Shows the changes since the commit of the matrix.
+          if [ -n "${{ matrix.since }}" ]; then git diff "${{ matrix.since }}" HEAD; fi
+          echo "The tests passed."
+      - run: tests/run.sh

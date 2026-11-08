@@ -46,11 +46,6 @@ vale_ext() {
   esac
 }
 
-is_markdown() {
-  case "$1" in md | markdown | mdx) return 0 ;; esac
-  return 1
-}
-
 # Prints the .vale.ini that applies in directory $1. A repository that has
 # its own .vale.ini uses it, as Vale itself would. Elsewhere the
 # .vale.ini of this repository applies.
@@ -143,19 +138,22 @@ check_japanese() {
   fi
 }
 
-# Writes the Japanese text that Vale finds in file $1, read as extension
-# $2, into a Markdown file at the same line numbers, and prints its path.
-# lint.py can read only Markdown and plain text, so this is how it reads a
-# code comment.
-japanese_text() {
-  local file="$1" ext="$2" out config="$root/vale/japanese.ini"
-  made=$((made + 1))
-  out="$work/japanese-$made.md"
-  (cd "$(dirname "$config")" && vale --no-exit --output=JSON --config="$config" --ext=".$ext" <"$file" 2>/dev/null) |
-    jq -r --argjson n "$(wc -l <"$file")" '
-      ([.[] | .[] | {(.Line | tostring): .Match}] | add // {}) as $at |
-      range(1; $n + 2) | $at[tostring] // ""' >"$out"
-  echo "$out"
+# Prints, as {line, text}, each line of the prose that Vale reads in file
+# $1 as extension $2, such as the comments of code. Vale applies the
+# TokenIgnores of a .vale.ini, and reads a span in backticks as code, only
+# in markup, so the checks read these lines as Markdown. It fails when Vale
+# can't read the file.
+vale_text() {
+  local config="$root/vale/text.ini"
+  (cd "$(dirname "$config")" && vale --no-exit --output=JSON --config="$config" --ext=".$2" <"$1" 2>/dev/null) |
+    jq -c '[.[] | .[] | {line: .Line, text: .Match}]' 2>/dev/null
+}
+
+# Prints, as {line, text}, the messages of shell script $1.
+shell_messages() {
+  # shfmt can't parse a template's `{{ ... }}`, nor an expression
+  # `${{ ... }}` of a workflow, so each one reads as x.
+  sed 's/{{[^}]*}}/x/g' "$1" | shfmt --to-json 2>/dev/null | jq -c -f "$root/lib/shell-messages.jq" || echo '[]'
 }
 
 # Writes the text in $2, a JSON array of {line, text}, into a Markdown file
@@ -171,12 +169,12 @@ at_lines() {
   echo "$out"
 }
 
-# Prints, as {line, text}, the prose of file $1 that Vale can't read in
-# place: the messages of a shell script, the string values of a .json,
-# .yml, .yaml or .toml file, and the comments of a chezmoi template. Vale
-# reads the rest of the file. It fails when it can't read the file's format.
+# Prints, as {line, text}, the prose of file $1 that Vale doesn't read: the
+# messages of a shell script, the string values of a .json, .yml, .yaml or
+# .toml file, and the comments of a chezmoi template. It fails when it
+# can't read the file's format.
 other_prose() {
-  local file="$1" name="${1##*/}" format strings
+  local file="$1" name="${1##*/}" format strings step script start scripts='[]'
   name="${name%.tmpl}"
   case "$name" in
     *.sh | *.bash | *.zsh) ;;
@@ -187,14 +185,27 @@ other_prose() {
       # the string as JSON writes it, as a .toml file does a basic string, or
       # else for its first line as the file holds it. A line break in the
       # text becomes a space, so that the text stays on its one line.
-      strings="$(yq -p "$format" -o json -I0 '[.. | select(tag == "!!str") | {"line": line, "text": .}]' "$file" 2>/dev/null)" || return
-      jq -s --rawfile raw "$file" '
+      # The run of a step, in a workflow or an action of GitHub, is a shell
+      # script unless the step names another shell. Its prose is that of a
+      # shell script: its comments and its messages.
+      strings="$(yq -p "$format" -o json -I0 '[.. | select(tag == "!!str") | {
+        "line": line, "text": ., "block": (style == "literal" or style == "folded"),
+        "script": ((path | .[-1]) == "run" and (path | .[-3]) == "steps" and ((parent | .shell // "bash") | test("^(ba)?sh")))}]' "$file" 2>/dev/null)" || return
+      while IFS= read -r step; do
+        script="$(mktemp "$work/script.XXXXXX")"
+        jq -r .text <<<"$step" >"$script"
+        # A block scalar starts on the line after its key.
+        start="$(jq '.line + (if .block then 1 else 0 end)' <<<"$step")"
+        scripts="$(jq -sc --argjson start "$start" '.[0] + (.[1] + .[2] | map(.line += $start - 1))' \
+          <<<"$scripts $(vale_text "$script" py || echo '[]') $(shell_messages "$script")")"
+      done < <(jq -c '.[] | select(.script)' <<<"$strings")
+      jq -s --rawfile raw "$file" --argjson scripts "$scripts" '
         ($raw | indices("\n")) as $breaks |
-        add // [] | map(select(.text != "") |
+        add // [] | map(select(.text != "" and (.script | not)) | del(.block, .script) |
           if .line > 0 then . else
             .text as $t | (($raw | index($t | tojson)) // ($raw | index($t | split("\n")[0]))) as $at |
             .line = (if $at then -($breaks | bsearch($at)) else null end)
-          end | .text |= gsub("\n"; " "))' <<<"$strings"
+          end | .text |= gsub("\n"; " ")) + $scripts' <<<"$strings"
       return
       ;;
     *)
@@ -224,35 +235,45 @@ other_prose() {
       fi
       ;;
   esac
-  # shfmt can't parse a template's {{ ... }}, so each one reads as x.
-  sed 's/{{[^}]*}}/x/g' "$file" | shfmt --to-json 2>/dev/null | jq -c -f "$root/lib/shell-messages.jq" || echo '[]'
+  shell_messages "$file"
 }
 
 # Checks all the prose of file $1 that Vale and lint.py can read. $2 is a
 # JSON array of the line numbers to report, or null for all lines. $3 is
 # the .vale.ini to use.
 check_prose() {
-  local file="$1" lines="$2" config="$3" ext prose text
+  local file="$1" lines="$2" config="$3" ext prose='[]' other text
   # A binary file, such as an image, holds no text.
   grep -Iq . "$file" || return
   ext="$(vale_ext "$file")"
-  if [ -n "$ext" ]; then
-    check_english "$file" "$ext" "$config" "$lines" "$file"
-    if is_markdown "$ext" || [ "$ext" = txt ]; then
+  case "$ext" in
+    "") ;;
+    md | markdown | mdx | txt)
+      check_english "$file" "$ext" "$config" "$lines" "$file"
       check_japanese "$file" "$lines" "$file"
-    else
-      check_japanese "$(japanese_text "$file" "$ext")" "$lines" "$file"
-    fi
+      ;;
+    html | htm)
+      # lint.py can read only Markdown and plain text.
+      check_english "$file" "$ext" "$config" "$lines" "$file"
+      check_japanese "$(at_lines "$file" "$(vale_text "$file" "$ext")")" "$lines" "$file"
+      ;;
+    *)
+      prose="$(vale_text "$file" "$ext")" ||
+        notes+=("Vale couldn't read the comments of $file, so the check didn't check them.")
+      ;;
+  esac
+  if ! other="$(other_prose "$file")"; then
+    notes+=("The check couldn't read $file, so it didn't check its text. Fix: make it valid, or leave it out with exclude in lefthook.yml.")
   fi
-  if ! prose="$(other_prose "$file")"; then
-    notes+=("yq couldn't read $file, so the check didn't check its text. Fix: make it valid, or leave it out with exclude in lefthook.yml.")
-  fi
-  if jq -e 'any(.[]; .line == null)' <<<"$prose" >/dev/null 2>&1; then
+  if jq -e 'any(.[]; .line == null)' <<<"$other" >/dev/null 2>&1; then
     notes+=("The check couldn't find the line of a string in $file, so it didn't check that string. Fix: write it as jq -c writes it, with no \\u or \\/ escape.")
   fi
-  if [ -n "$prose" ] && [ "$prose" != "[]" ]; then
+  # Vale reads a # line of a workflow's script as a comment of the file,
+  # so the same text can come from both.
+  prose="$(jq -sc 'map(. // []) | add | unique' <<<"${prose:-[]} ${other:-[]}")"
+  if [ "$prose" != "[]" ]; then
     text="$(at_lines "$file" "$prose")"
-    check_english "$text" md "$config" "$lines" "the strings in $file"
-    check_japanese "$text" "$lines" "the strings in $file"
+    check_english "$text" md "$config" "$lines" "$file"
+    check_japanese "$text" "$lines" "$file"
   fi
 }
