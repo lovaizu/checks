@@ -22,9 +22,11 @@ trap 'rm -rf "$work"' EXIT
 # formats that have # comments, such as shell and YAML, as Python, and it
 # reads only their comments, so other_prose reads their messages or string
 # values. Vale doesn't read JSON, which has no comments: other_prose reads
-# its string values. Vale reads any other text file as plain text, all of
-# it. That holds for reStructuredText, AsciiDoc and XML too, as they need
-# programs that aren't installed (rst2html, asciidoctor, xsltproc).
+# its string values. Vale reads an SVG file as HTML, so that it reads only
+# the text that the figure shows, at its line, and none of the markup or
+# style. Vale reads any other text file as plain text, all of it. That
+# holds for reStructuredText, AsciiDoc and XML too, as they need programs
+# that aren't installed (rst2html, asciidoctor, xsltproc).
 vale_ext() {
   local name="${1##*/}"
   name="${name%.tmpl}"
@@ -36,6 +38,7 @@ vale_ext() {
   fi
   case "${name##*.}" in
     md | markdown | mdx | txt | html | htm) echo "${name##*.}" ;;
+    svg) echo html ;;
     c | h | clj | cljs | cljc | cs | cpp | cc | cxx | hpp | css | ex | exs | go | hs | java | js | jsx | mjs | cjs | jl | kt | kts | less | lua | pl | pm | php | ps1 | proto | py | qml | r | R | rb | rs | sass | scss | scala | swift | ts | tsx | mts | cts) echo "${name##*.}" ;;
     sh | bash | zsh | yml | yaml | toml | jq) echo py ;;
     json) ;;
@@ -196,7 +199,16 @@ other_prose() {
       ;;
     *)
       if ! head -n 1 "$file" | grep -qE '^#!.*[/ ](ba|z)?sh'; then
-        # The comments of a chezmoi template, {{/* ... */}}, line by line.
+        # Only a chezmoi template has the comments {{/* ... */}}. In any
+        # other file, /* is text, such as a glob.
+        case "$file" in
+          *.tmpl | */.chezmoitemplates/* | */.chezmoiignore | */.chezmoiremove) ;;
+          *)
+            echo '[]'
+            return
+            ;;
+        esac
+        # The comments of a chezmoi template, line by line.
         awk '{
           line = $0; out = ""
           while (line != "") {
