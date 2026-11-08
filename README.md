@@ -15,6 +15,7 @@ It reads all the text of each file that it gets:
 - Code: the comments, and the messages of a shell script.
 - JSON, YAML and `.toml` files: every string value, and the comments.
 - Any other text file: all of it, as plain text.
+- A chezmoi template, such as a file named `*.tmpl`: as the format of its name without `.tmpl`, and the comments `{{/* ... */}}` too.
 
 It checks each commit message too, but the lines that git leaves out and the trailers, such as `Co-Authored-By`. A binary file, such as an image, holds no text to read.
 

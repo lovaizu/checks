@@ -196,7 +196,16 @@ other_prose() {
       ;;
     *)
       if ! head -n 1 "$file" | grep -qE '^#!.*[/ ](ba|z)?sh'; then
-        # The comments of a chezmoi template, {{/* ... */}}, line by line.
+        # Only a chezmoi template has the comments {{/* ... */}}. In any
+        # other file, /* is text, such as a glob.
+        case "$file" in
+          *.tmpl | */.chezmoitemplates/* | */.chezmoiignore | */.chezmoiremove) ;;
+          *)
+            echo '[]'
+            return
+            ;;
+        esac
+        # The comments of a chezmoi template, line by line.
         awk '{
           line = $0; out = ""
           while (line != "") {
