@@ -1,0 +1,8 @@
+# The descriptions in the settings of a tool, such as the plugin.json of
+# Claude Code or a package.json. Its other values, such as names and
+# commands, aren't prose. Vale reads the comments of
+# YAML and `.toml` files too.
+engine: dasel
+scopes:
+  - expr: search($key == "description")
+    type: md

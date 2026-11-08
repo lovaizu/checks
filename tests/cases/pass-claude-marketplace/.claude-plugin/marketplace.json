@@ -1,0 +1,5 @@
+{"$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "lovaizu",
+  "owner": {"name": "Lovaizu (e.g.)"},
+  "plugins": [{"name": "rn", "source": "./plugins/rn", "description": "Makes what you ask for."}]
+}

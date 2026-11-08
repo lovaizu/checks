@@ -1,3 +1,0 @@
-{"$comment": "expect: prose.sh:",
-  "description": "A word in \u0022quotes\u0022 has an escape that jq -c doesn't write."
-}

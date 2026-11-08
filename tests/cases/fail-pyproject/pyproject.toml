@@ -1,0 +1,4 @@
+# expect: Google.Latin
+[project]
+name = "ccpm"
+description = "Plugins for Claude Code, e.g. rn."

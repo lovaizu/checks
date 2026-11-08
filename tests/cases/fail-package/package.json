@@ -1,0 +1,4 @@
+{"name": "scripts",
+  "description": "Renders the figures, e.g. the diagrams. expect: Google.Latin",
+  "scripts": {"build": "node mermaid.mjs; echo e.g."}
+}

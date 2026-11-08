@@ -1,0 +1,8 @@
+# The name of a GitHub workflow, and of each job and step. Vale reads its
+# comments too, and lib/lib.sh reads the run of each step as a shell
+# script. The other values, such as runs-on, uses and if, aren't prose.
+engine: dasel
+scopes:
+  - expr: name?
+  - expr: jobs?.all().name?
+  - expr: jobs?.all().steps?.all().name?

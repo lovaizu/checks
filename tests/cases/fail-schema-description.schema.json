@@ -1,0 +1,5 @@
+{"$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "expect: Google.Latin",
+  "title": "A form",
+  "properties": {"goal": {"type": "string", "description": "What the tool does, e.g. a check."}}
+}

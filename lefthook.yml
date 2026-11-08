@@ -6,6 +6,6 @@ extends:
 
 pre-commit:
   exclude:
-    - "tests/cases/*"
+    - "tests/cases/**"
     - LICENSE
     - mise.lock

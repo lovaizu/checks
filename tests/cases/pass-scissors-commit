@@ -1,0 +1,8 @@
+Check the prose of each file
+
+# Please enter the commit message for your changes.
+# ------------------------ >8 ------------------------
+# Do not modify or remove the line above.
+diff --git a/x b/x
+-It is the best; e.g. this
++It is the best; e.g. that

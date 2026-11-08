@@ -1,0 +1,5 @@
+# expect: Google.Latin
+{{/* The files of a Mac, e.g. Library. */}}
+{{ if ne .chezmoi.os "darwin" }}
+Library
+{{ end }}
