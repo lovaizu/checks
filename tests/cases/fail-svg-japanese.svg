@@ -1,0 +1,7 @@
+<!-- expect: forbidden_phrase -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40">
+  <style>
+    .box { fill: #f6f8fa; }
+  </style>
+  <text class="box" x="10" y="25">この図は大きなメリットがあると言えるでしょう。</text>
+</svg>

@@ -12,6 +12,7 @@ The checks that lovaizu repositories share. Each repository names this one in it
 It reads all the text of each file that it gets:
 
 - Markdown, plain text and HTML: all the text but code, as Vale reads it.
+- SVG: the text that the figure shows, such as `<title>`, `<desc>` and `<text>`, but none of its markup or style.
 - Code: the comments, and the messages of a shell script.
 - JSON, YAML and `.toml` files: every string value, and the comments.
 - Any other text file: all of it, as plain text.
