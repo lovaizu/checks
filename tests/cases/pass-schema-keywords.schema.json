@@ -1,0 +1,10 @@
+{"$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/e.g./form.json",
+  "title": "A form",
+  "type": "object",
+  "properties": {
+    "kind": {"enum": ["it is", "e.g. this"], "default": "it is"},
+    "name": {"type": "string", "pattern": "^[a-z]+(e.g.)?$", "examples": ["The best; e.g."]},
+    "description": {"type": "string", "description": "What it does."}
+  }
+}

@@ -1,7 +1,7 @@
 #!/bin/bash
-# Checks the prose of each file given, and fails on any finding: English by
-# Vale with the Google developer documentation style, and Japanese by lint.py
-# of the skill natural-japanese. README.md says what text it reads. It takes
+# Checks the prose of each file given, and fails on any finding. Vale checks
+# the English with the Google developer documentation style, and lint.py of
+# the skill natural-japanese checks the Japanese. README.md says what text it reads. It takes
 # the paths of the files, after --message when they're commit messages. A
 # check that can't run fails too, as it would let a finding through.
 set -uo pipefail
@@ -19,13 +19,14 @@ for file in "$@"; do
   [ -f "$file" ] && [ ! -L "$file" ] || continue
   case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
   if [ -n "$message" ]; then
-    # git leaves out the lines that start with #, so the check does too. The
-    # trailers of the last paragraph, such as Co-Authored-By, are fields,
-    # not prose. Each line left out stays as an empty line, so that the line
-    # numbers of the findings stay those of the message.
-    made=$((made + 1))
-    text="$work/message-$made.md"
-    sed 's/^#.*//' "$file" | awk '
+    # git leaves out the lines that start with #, and all below the
+    # scissors line that `git commit --verbose` writes before the diff, so
+    # the check does too. The trailers of the last paragraph, such as
+    # Co-Authored-By, are fields, not prose. Each line left out stays as an
+    # empty line, so that the line numbers of the findings stay those of
+    # the message.
+    text="$(new_file .md)"
+    awk '/^# -+ >8 -+$/ { cut = 1 } { print (cut || /^#/) ? "" : $0 }' "$file" | awk '
       { line[NR] = $0 }
       END {
         last = NR
@@ -35,7 +36,7 @@ for file in "$@"; do
         if (first < last && (first == 0 || line[first] == "")) for (i = first + 1; i <= last; i++) line[i] = ""
         for (i = 1; i <= NR; i++) print line[i]
       }' >"$text"
-    check_english "$text" md "$(vale_config "$PWD")" null "the commit message"
+    check_english "$text" "$text" "$(vale_config "$PWD")" null "the commit message"
     check_japanese "$text" null "the commit message"
   else
     check_prose "$file" null "$(vale_config "$(dirname "$file")")"

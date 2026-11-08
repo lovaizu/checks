@@ -1,0 +1,6 @@
+[tools]
+vale = "3.25.1"
+
+[tools."http:vale-google"]
+url = "https://github.com/vale-cli/Google/releases/download/v{{ version }}/Google.zip"
+checksum = "sha256:e.g.; that"

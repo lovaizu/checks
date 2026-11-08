@@ -1,0 +1,23 @@
+# A workflow, whose steps hold shell scripts.
+name: Tests
+on: push
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.changed.outputs.plugins) }}
+    steps:
+      - uses: actions/checkout@v7 # v7.0.1
+        with:
+          ref: e.g. this; that
+      - if: hashFiles(format('dev/{0}/cosmic-ray.toml', matrix.plugin)) != ''
+        env:
+          MODE: e.g. strict; fast
+        run: |
+          # Shows the changes since the commit of the matrix.
+          if [ -n "${{ matrix.since }}" ]; then git diff "${{ matrix.since }}" HEAD; fi
+          echo "The tests passed."
+      - run: tests/run.sh
+      - shell: python
+        run: print("e.g. this; that")

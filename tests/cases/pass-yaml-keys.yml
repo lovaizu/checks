@@ -1,0 +1,4 @@
+Use a tool, e.g. Vale.: 1
+base: &best {a: true}
+other: *best
+tagged: !!int 3

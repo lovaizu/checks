@@ -1,0 +1,5 @@
+{"name": "scripts",
+  "private": true,
+  "scripts": {"build": "node mermaid.mjs; echo e.g."},
+  "dependencies": {"@mermaid-js/mermaid-cli": "^11.4.0"}
+}

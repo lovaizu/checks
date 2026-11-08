@@ -1,0 +1,4 @@
+{"permissions": {"allow": ["Bash(git status:*)", "Read(e.g./**)"]},
+  "statusLine": {"type": "command", "command": "sh \"$HOME/.claude/scripts/statusline.sh\""},
+  "hooks": {"PostToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "bash \"$HOME/check.sh\"; echo e.g."}]}]}
+}

@@ -1,0 +1,5 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /* expect: Google.Latin, as it keeps the rc file, e.g. as found. */ -}}
+{{- $mise := printf ". %q" (joinPath .chezmoi.homeDir ".config/shell/mise.sh") -}}
+{{- .chezmoi.stdin -}}
+{{ $mise }}

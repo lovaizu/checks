@@ -1,0 +1,5 @@
+# No value of a data file, so that Vale finds only its comments. lib/lib.sh
+# reads them as Markdown, as the comments of code read.
+engine: dasel
+scopes:
+  - expr: search(false)

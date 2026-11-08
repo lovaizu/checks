@@ -1,0 +1,5 @@
+# The notes of a form.
+engine: dasel
+scopes:
+  - expr: search($key == "notes" || $key == "e.g.; this")
+    type: md

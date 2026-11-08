@@ -1,0 +1,4 @@
+#!/bin/sh
+# Opens the sandbox.
+x="e.g. this; that"
+exec herdr "$x"

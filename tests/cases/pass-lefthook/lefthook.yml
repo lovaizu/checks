@@ -1,0 +1,7 @@
+# The checks of this repository.
+pre-commit:
+  exclude:
+    - "plugins/lane/hooks**"
+  jobs:
+    - name: prose (e.g.)
+      run: sh dev/scripts/pre-push.sh; echo e.g.

@@ -1,0 +1,5 @@
+# expect: Google.Latin
+goal = """
+The first line is fine.
+Use a tool, e.g. Vale.
+"""

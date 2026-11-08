@@ -1,0 +1,8 @@
+# expect: Google.Latin
+name: Tests, e.g. of the checks
+on: push
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: tests/run.sh

@@ -1,0 +1,3 @@
+/* The colors of the box. */
+.box { fill: #f6f8fa; stroke: #d0d7de; content: "e.g. this; that"; }
+@media (prefers-color-scheme: dark) { .box { fill: #161b22; } }

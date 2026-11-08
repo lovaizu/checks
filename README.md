@@ -9,16 +9,27 @@ The checks that lovaizu repositories share. Each repository names this one in it
 - English, by [Vale](https://vale.sh) with the [Google developer documentation style](https://developers.google.com/style).
 - Japanese, by `lint.py` of the skill [natural-japanese](https://github.com/coji/natural-japanese).
 
-It reads all the text of each file that it gets:
+In each file, it reads only the text that the file's format holds as prose for a reader:
 
-- Markdown, plain text and HTML: all the text but code, as Vale reads it.
-- SVG: the text that the figure shows, such as `<title>`, `<desc>` and `<text>`, but none of its markup or style.
-- Code: the comments, and the messages of a shell script. A span in backticks in a comment reads as code, as it does in Markdown.
-- JSON, YAML and `.toml` files: every string value, and the comments. The `run` of a step in a GitHub workflow or action reads as a shell script, unless the step names another shell.
-- Any other text file: all of it, as plain text.
-- A chezmoi template, such as a file named `*.tmpl`: as the format of its name without `.tmpl`, and the comments `{{/* ... */}}` too.
+| Format | What it reads |
+| --- | --- |
+| Markdown | All the text that it shows, but code and URLs. In front matter, each string field but those that Claude Code defines as a name or a setting, such as `name`, `model` and `allowed-tools`. |
+| Plain text, and any format that this table doesn't name | All of it. |
+| HTML and SVG | The text that the page or the figure shows, such as `<title>`, `<desc>` and `<text>` of SVG, and `alt` text. |
+| JSON, YAML and `.toml` files | Each string value, and the comments. |
+| JSON Schema, named `*.schema.json` | `title`, `description` and `$comment`. |
+| A GitHub workflow or action | The comments, the names, and the descriptions of the action and its inputs and outputs. The `run` of a step reads as a shell script, unless the step names another shell. |
+| The settings of Claude Code and other tools: `plugin.json`, `marketplace.json`, `hooks.json`, `settings.json`, `package.json`, `pyproject.toml`, `mise.toml`, `lefthook.yml` | The comments and each `description`. |
+| `.ini`, `.cfg` and `.coveragerc` files | The comments and the values. |
+| `.vale.ini`, `.gitignore` and `requirements.txt` | The comments. |
+| Shell scripts | The comments, and the words that `echo` and `printf` show on the terminal. |
+| Python, JavaScript, CSS and the other code that Vale knows, and jq | The comments, and the docstrings of Python. |
+| A chezmoi template, such as `*.tmpl` | The comments `{{/* ... */}}`, and the rest as the file that the template makes, without its actions `{{ ... }}`. |
+| A file with no extension | As the program that its first line `#!` names, or as plain text. |
+| A commit message | The subject and the body, but the lines that git leaves out, all below the scissors line, and the trailers, such as `Co-Authored-By`. |
+| A binary file, such as an image | Nothing. |
 
-It checks each commit message too, but the lines that git leaves out and the trailers, such as `Co-Authored-By`. A binary file, such as an image, holds no text to read.
+The checks read comments and string values as Markdown, so a span in backticks reads as code. A lockfile and a license read as their format says: leave them out, as no one in the repository writes them. lovaizu/checks#12 says where each row comes from.
 
 ## Use it in a repository
 
@@ -53,15 +64,23 @@ pre-commit:
     - LICENSE
 ```
 
-To leave out a pattern, such as a word of code, write a `.vale.ini` of your own. Vale uses it, in place of the one of the checks, for each file in its directory and below. Give it the Google style, and the pattern in [`TokenIgnores`](https://vale.sh/docs/keys/tokenignores) or [`BlockIgnores`](https://vale.sh/docs/keys/blockignores):
+To leave out a pattern, such as a path, write a `.vale.ini` of your own. Vale uses it, in place of the one of the checks, for each file in its directory and below. Give it the Google style, and the pattern in [`TokenIgnores`](https://vale.sh/docs/keys/tokenignores) or [`BlockIgnores`](https://vale.sh/docs/keys/blockignores):
 
 ```ini
 [*]
 BasedOnStyles = Google
-TokenIgnores = ubuntu-latest
+TokenIgnores = ([\w.-]+/[\w./-]+)
 ```
 
-A pattern applies to the comments of code too. Keep the patterns under `[*]`. The checks give Vale the comments, the string values of a file and the messages of a shell script in a Markdown file of their own, so a section for a file type doesn't apply to them. lint.py doesn't read `.vale.ini`, so leave out a file to skip its Japanese.
+A pattern applies wherever the checks read Markdown: comments, string values and the text of a figure too. Keep the patterns under `[*]`, as the checks give Vale some of this text in a Markdown file of their own, which a section for a file type doesn't match.
+
+A field of front matter reads as plain text, which a pattern doesn't reach. To leave out a field, name its scope in [`IgnoredScopes`](https://vale.sh/docs/keys/ignoredscopes), before the first section. It adds to the scopes that the checks leave out:
+
+```ini
+IgnoredScopes = text.frontmatter.argument-hint
+```
+
+lint.py doesn't read `.vale.ini`, so leave out a file to skip its Japanese.
 
 ## Change the checks
 

@@ -1,0 +1,7 @@
+{"$comment": "expect: Google.Latin",
+  "home": "{{ .chezmoi.homeDir }}/e.g.",
+  {{- if eq .chezmoi.os "darwin" }}
+  "goal": "Use a tool, e.g. Vale.",
+  {{- end }}
+  "last": 1
+}
