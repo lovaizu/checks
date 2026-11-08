@@ -64,7 +64,7 @@ pre-commit:
     - LICENSE
 ```
 
-To leave out a pattern, such as a path, write a `.vale.ini` of your own. Vale uses it, in place of the one of the checks, for each file in its directory and below. Give it the Google style, and the pattern in [`TokenIgnores`](https://vale.sh/docs/keys/tokenignores) or [`BlockIgnores`](https://vale.sh/docs/keys/blockignores):
+To leave out a pattern, such as a path, write a `.vale.ini` of your own. Vale uses it for each file in its directory and below, in place of the checks' own `.vale.ini`, and the checks still lay under it how Vale reads each format. Give it the Google style, and the pattern in [`TokenIgnores`](https://vale.sh/docs/keys/tokenignores) or [`BlockIgnores`](https://vale.sh/docs/keys/blockignores):
 
 ```ini
 [*]
