@@ -17,26 +17,29 @@ work="$(mktemp -d)"
 made=0
 trap 'rm -rf "$work"' EXIT
 
-# Prints the extension by which Vale reads a file, or nothing when Vale
-# cannot read the file's prose. A chezmoi template is read by the extension
-# before .tmpl. Vale reads the formats that have # comments, such as shell
-# and YAML, as Python, and it reads only their comments. Vale reads other
-# formats that it does not know as plain text, code and all, so they are
-# left out. reStructuredText, AsciiDoc and XML need programs that are not
-# installed (rst2html, asciidoctor, xsltproc).
+# Prints the extension by which Vale reads a file, or nothing for JSON. A
+# chezmoi template is read by the extension before .tmpl. Vale reads the
+# formats that have # comments, such as shell and YAML, as Python, and it
+# reads only their comments, so other_prose reads their messages or string
+# values. Vale doesn't read JSON, which has no comments: other_prose reads
+# its string values. Vale reads any other text file as plain text, all of
+# it. That holds for reStructuredText, AsciiDoc and XML too, as they need
+# programs that aren't installed (rst2html, asciidoctor, xsltproc).
 vale_ext() {
   local name="${1##*/}"
   name="${name%.tmpl}"
   if [ "$name" = "${name%.*}" ] || [ "${name%.*}" = "" ]; then
     # A file with no extension, such as an executable, is read by the
     # program that its first line names.
-    if head -n 1 "$1" 2>/dev/null | grep -qE '^#!.*[/ ](ba|z)?sh'; then echo py; fi
+    if head -n 1 "$1" 2>/dev/null | grep -qE '^#!.*[/ ](ba|z)?sh'; then echo py; else echo txt; fi
     return
   fi
   case "${name##*.}" in
     md | markdown | mdx | txt | html | htm) echo "${name##*.}" ;;
     c | h | clj | cljs | cljc | cs | cpp | cc | cxx | hpp | css | ex | exs | go | hs | java | js | jsx | mjs | cjs | jl | kt | kts | less | lua | pl | pm | php | ps1 | proto | py | qml | r | R | rb | rs | sass | scss | scala | swift | ts | tsx | mts | cts) echo "${name##*.}" ;;
-    sh | bash | zsh | yml | yaml | toml | jq | ini) echo py ;;
+    sh | bash | zsh | yml | yaml | toml | jq) echo py ;;
+    json) ;;
+    *) echo txt ;;
   esac
 }
 
@@ -165,23 +168,30 @@ at_lines() {
   echo "$out"
 }
 
-# Prints, as {line, text}, the prose of file $1 that Vale can't read where
-# it is: the messages of a shell script, the descriptions in a JSON file,
-# and the comments of a chezmoi template. Vale reads the rest of the file.
+# Prints, as {line, text}, the prose of file $1 that Vale can't read in
+# place: the messages of a shell script, the string values of a .json,
+# .yml, .yaml or .toml file, and the comments of a chezmoi template. Vale
+# reads the rest of the file. It fails when it can't read the file's format.
 other_prose() {
-  local file="$1" name="${1##*/}"
+  local file="$1" name="${1##*/}" format strings
   name="${name%.tmpl}"
   case "$name" in
     *.sh | *.bash | *.zsh) ;;
-    *.json)
-      # The file escapes a quote or a newline in a description, so the
-      # check looks for each one as JSON writes it. A line break in the text
-      # becomes a space, so that the text stays on its one line.
-      jq -c '.. | objects | .description? | strings' "$file" 2>/dev/null |
-        while IFS= read -r encoded; do
-          line="$(grep -nF -m 1 -- "${encoded:1:${#encoded}-2}" "$file" | cut -d: -f1)"
-          jq -n --argjson text "$encoded" --argjson line "${line:-null}" '{line: $line, text: ($text | gsub("\n"; " "))}'
-        done | jq -s .
+    *.json | *.yml | *.yaml | *.toml)
+      format="${name##*.}"
+      [ "$format" = yml ] && format=yaml
+      # yq gives the line of a YAML string. Elsewhere the check looks for
+      # the string as JSON writes it, as a .toml file does a basic string, or
+      # else for its first line as the file holds it. A line break in the
+      # text becomes a space, so that the text stays on its one line.
+      strings="$(yq -p "$format" -o json -I0 '[.. | select(tag == "!!str") | {"line": line, "text": .}]' "$file" 2>/dev/null)" || return
+      jq -s --rawfile raw "$file" '
+        ($raw | indices("\n")) as $breaks |
+        add // [] | map(select(.text != "") |
+          if .line > 0 then . else
+            .text as $t | (($raw | index($t | tojson)) // ($raw | index($t | split("\n")[0]))) as $at |
+            .line = (if $at then -($breaks | bsearch($at)) else null end)
+          end | .text |= gsub("\n"; " "))' <<<"$strings"
       return
       ;;
     *)
@@ -211,6 +221,8 @@ other_prose() {
 # the .vale.ini to use.
 check_prose() {
   local file="$1" lines="$2" config="$3" ext prose text
+  # A binary file, such as an image, holds no text.
+  grep -Iq . "$file" || return
   ext="$(vale_ext "$file")"
   if [ -n "$ext" ]; then
     check_english "$file" "$ext" "$config" "$lines" "$file"
@@ -220,13 +232,15 @@ check_prose() {
       check_japanese "$(japanese_text "$file" "$ext")" "$lines" "$file"
     fi
   fi
-  prose="$(other_prose "$file")"
+  if ! prose="$(other_prose "$file")"; then
+    notes+=("yq couldn't read $file, so the check didn't check its text. Fix: make it valid, or leave it out with exclude in lefthook.yml.")
+  fi
   if jq -e 'any(.[]; .line == null)' <<<"$prose" >/dev/null 2>&1; then
-    notes+=("The check couldn't find the line of a description in $file, so it didn't check that description. Fix: write it as jq -c writes it, with no \\u or \\/ escape.")
+    notes+=("The check couldn't find the line of a string in $file, so it didn't check that string. Fix: write it as jq -c writes it, with no \\u or \\/ escape.")
   fi
   if [ -n "$prose" ] && [ "$prose" != "[]" ]; then
     text="$(at_lines "$file" "$prose")"
-    check_english "$text" md "$config" "$lines" "the messages in $file"
-    check_japanese "$text" "$lines" "the messages in $file"
+    check_english "$text" md "$config" "$lines" "the strings in $file"
+    check_japanese "$text" "$lines" "the strings in $file"
   fi
 }

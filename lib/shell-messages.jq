@@ -21,7 +21,4 @@ def message: select(quoted) | {line: .Pos.Line, text: ([.Parts[] | text] | join(
     (select(any(["warn", "echo", "printf"][]; . == $name)) | .Args[1:][] | message),
     (.Assigns[]? | select(.Name.Value == "reason" or .Name.Value == "message") | .Value | select(. != null) | message),
     (.Assigns[]? | select(.Name.Value == "notes" and .Append) | .Array.Elems[]?.Value | message)
-  else empty end] |
-  # A message has two words or more outside its code, which a format such
-  # as '%s\n' or a path has not.
-  map(select(.text | gsub("`[^`]*`"; "") | test("[A-Za-z]+ +[A-Za-z]+|[\\p{Hiragana}\\p{Katakana}\\p{Han}]")))
+  else empty end]
