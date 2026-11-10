@@ -1,12 +1,15 @@
 # The checks of this repository: the same ones that it shares, on its
-# Markdown, as Vale reads the other files here as plain text, code and all.
-# The cases of tests/cases have findings on purpose.
+# Markdown, as Vale reads the other files here as plain text, with the code
+# in them. This repository holds no Japanese. The cases of tests/cases
+# have findings on purpose.
 extends:
   - hooks.yml
 
 pre-commit:
   jobs:
-    - name: prose
+    - name: english
       glob: "*.md"
       exclude:
         - "tests/cases/**"
+    - name: japanese
+      skip: true

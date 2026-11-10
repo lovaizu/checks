@@ -1,8 +1,9 @@
 # The checks of prose.sh. Another script, such as a hook of Claude Code,
 # can source this file and call `check_prose`. Vale checks the English with
 # the Google developer documentation style, and textlint checks the
-# Japanese. Each tool reads the file as it reads its format, and the checks
-# change nothing in it. Each check adds its findings to $fails or $shows,
+# Japanese. The repository chooses which files each one checks. Each tool
+# reads the file as it reads its format, and the checks change nothing in
+# it. Each check adds its findings to $fails or $shows,
 # by the level that the tool gives them, and the reasons that it couldn't
 # run to $notes. Run setup.sh first, as prose.sh does.
 
@@ -82,26 +83,10 @@ textlint_levels="$work/textlint-levels.json"
 textlint_source=""
 textlint_ready=""
 
-# Runs textlint on the Japanese of file $1. textlint reads Markdown and
-# plain text, and no other format.
+# Runs textlint on file $1. textlint reads Markdown and plain text, and no
+# other format.
 check_japanese() {
-  local file="$1" out found dir name text
-  # textlint is the standard of the Japanese, so it reads only the lines
-  # that hold more Japanese characters than Latin letters. Each other line
-  # stays as an empty line, so that a finding keeps the line number of the
-  # file. An English sentence with a Japanese name in it, such as ⌘英かな,
-  # stays out, as the Japanese rules would break it. A fence of a code
-  # block stays, so that the code stays code. The file goes to textlint
-  # when the lines left hold hiragana or katakana.
-  dir="$(mktemp -d "$work/japanese.XXXXXX")"
-  name="${file##*/}"
-  jq -Rsr '
-    def count(re): [scan(re)] | length;
-    split("\n") | map(
-      if test("^\\s*(```|~~~)") or count("[\\p{Hiragana}\\p{Katakana}\\p{Han}]") > count("[A-Za-z]") then . else "" end
-    ) | join("\n")' "$file" >"$dir/$name"
-  jq -Rse 'test("[\\p{Hiragana}\\p{Katakana}]")' "$dir/$name" >/dev/null || return
-  text="$dir/$name"
+  local file="$1" out found
   if [ ! -x "$textlint_dir/node_modules/.bin/textlint" ]; then
     notes+=("textlint isn't installed, so the check skipped the Japanese. Fix: run $root/setup.sh.")
     return
@@ -116,7 +101,7 @@ check_japanese() {
   fi
   [ "$textlint_ready" = 1 ] || return
   out="$("$textlint_dir/node_modules/.bin/textlint" --format json --config "$textlint_config" \
-    --rules-base-directory "$textlint_dir/node_modules" "$text" 2>&1)"
+    --rules-base-directory "$textlint_dir/node_modules" "$file" 2>&1)"
   # textlint gives each finding a level by number: 1 warning, 2 error and
   # 3 info. The level that the settings name for a rule comes first, as
   # config.mjs says.
@@ -128,10 +113,9 @@ check_japanese() {
   add_findings "textlint on $file${textlint_source:+, with $textlint_source}:" "$found"
 }
 
-# Checks the prose of file $1.
+# Checks the prose of file $1 with the check $2: check_english or
+# check_japanese. A binary file, such as an image, holds no text.
 check_prose() {
-  # A binary file, such as an image, holds no text.
   grep -Iq . "$1" || return
-  check_english "$1"
-  check_japanese "$1"
+  "$2" "$1"
 }

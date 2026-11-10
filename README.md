@@ -6,10 +6,10 @@ The checks that lovaizu repositories share. Each repository names this one in it
 
 The checks are for the text that people and agents read. They stop text that falls short of the standard, so that the writer looks at it again and rewrites it for its reader.
 
-`prose.sh` checks each file that it gets:
+`hooks.yml` gives each language a job of its own, as which files hold English and which hold Japanese is the case of each repository:
 
-- English, by [Vale](https://vale.sh) with the [Google developer documentation style](https://developers.google.com/style).
-- Japanese, by [textlint](https://textlint.org), on the lines that hold more Japanese characters than Latin letters, so that an English sentence with a Japanese name in it stays with Vale. It runs these rules:
+- `english` checks the English, by [Vale](https://vale.sh) with the [Google developer documentation style](https://developers.google.com/style).
+- `japanese` checks the Japanese, by [textlint](https://textlint.org). It runs these rules:
   - [`textlint-rule-preset-ja-technical-writing`](https://github.com/textlint-ja/textlint-rule-preset-ja-technical-writing)
   - [`@textlint-ja/textlint-rule-preset-ai-writing`](https://github.com/textlint-ja/textlint-rule-preset-ai-writing)
   - [`textlint-rule-ja-hiragana-keishikimeishi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-keishikimeishi), [`textlint-rule-ja-hiragana-hojodoushi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-hojodoushi) and [`textlint-rule-ja-hiragana-fukushi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-fukushi)
@@ -25,9 +25,10 @@ The report says what the checks are for before the findings, and again in short 
 
 ## Use it in a repository
 
-Install [mise](https://mise.jdx.dev/installing-mise.html) and [lefthook](https://lefthook.dev). Then name this repository in `lefthook.yml`, at a tag, and choose the files to check with `glob` and `exclude` of the job `prose`:
+Install [mise](https://mise.jdx.dev/installing-mise.html) and [lefthook](https://lefthook.dev). Then name this repository in `lefthook.yml`, at a tag, and give each job its files with `glob` and `exclude`. Neither job has a glob of its own, so a job that you don't name checks each staged file. A file that holds both languages goes to both jobs only if you give it to both. For example, for English files in the root and Japanese files in `docs/ja`:
 
 ```yaml
+glob_matcher: doublestar
 remotes:
   - git_url: https://github.com/lovaizu/checks
     ref: v0.1.0
@@ -36,11 +37,15 @@ remotes:
 
 pre-commit:
   jobs:
-    - name: prose
+    - name: english
       glob: "*.md"
       exclude:
         - "notes/**"
+    - name: japanese
+      glob: "docs/ja/**/*.md"
 ```
+
+With [`glob_matcher: doublestar`](https://lefthook.dev/configuration/glob_matcher/), `*.md` matches only the files in the root, and `docs/ja/**/*.md` matches the files in `docs/ja` and below. To turn off a job, give it `skip: true`.
 
 Run `lefthook install` once in each clone. In CI, add this step after `actions/checkout`, at the commit of the same tag:
 
@@ -97,11 +102,11 @@ A `.textlintrc.js` or `.textlintrc.cjs` fails the check, as JavaScript can't mer
 
 ## Check other text
 
-A repository that checks text inside another format, such as the strings of a JSON file, adds a job of its own. The job prints the text as Markdown at the line numbers of the file, and gives that file to `prose.sh`.
+A repository that checks text inside another format, such as the strings of a JSON file, adds a job of its own. The job prints the text as Markdown at the line numbers of the file, and gives that file to `prose.sh english` or `prose.sh japanese`.
 
 ## Change the checks
 
 - A tool: change its version in `mise.toml`, then run `mise lock --platform linux-x64,linux-arm64,macos-arm64,macos-x64`.
 - textlint or a rule: change its version in `textlint/package.json`, then run `npm install --package-lock-only --ignore-scripts` in `textlint`.
 
-`tests/run.sh` checks that each case in `tests/cases` passes, shows, or fails as its name says. `tests/consumer.sh` checks a repository that names this one, with its own `glob`, `.vale.ini` and `.textlintrc`.
+`tests/run.sh` checks that each case in `tests/cases/english` and `tests/cases/japanese` passes, shows, or fails as its name says. `tests/consumer.sh` checks a repository that names this one, with its own globs, `.vale.ini` and `.textlintrc`.
