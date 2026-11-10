@@ -85,7 +85,7 @@ remotes:
       - japanese.yml
 YAML
 git add -A
-expect 1 "english ❯" "japanese ❯" "textlint didn't check $dir/consumer/lefthook.yml, as it reads only the files that end in "
+expect 1 "english ❯" "japanese ❯" "$dir/consumer/lefthook.yml" ": textlint reads only the files that end in " "Fix: leave each file out of the job japanese"
 cat >>lefthook.yml <<YAML
 pre-commit:
   jobs:

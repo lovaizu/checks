@@ -14,7 +14,8 @@ here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 "$here/setup.sh" || exit 1
 . "$here/lib/lib.sh"
 
-case "${1:-}" in
+language="${1:-}"
+case "$language" in
   english) check=check_english ;;
   japanese) check=check_japanese ;;
   *)
@@ -30,12 +31,12 @@ for file in "$@"; do
   # A link is the file that it points to, which the check reads apart. A
   # binary file, such as an image, holds no text.
   [ -f "$file" ] && [ ! -L "$file" ] || continue
-  grep -Iq . "$file"
+  grep -Iq . "$file" 2>"$work/grep.err"
   case $? in
     0) ;;
     1) continue ;;
     *)
-      notes+=("The check couldn't read $file. Fix: make the file readable, or leave it out of the job.")
+      add_report "The checks" "$language" "$(jq -n --arg file "$file" --rawfile reason "$work/grep.err" '{files: [], notes: [{file: $file, kind: "read", reason: $reason}]}')"
       continue
       ;;
   esac

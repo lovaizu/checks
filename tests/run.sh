@@ -122,9 +122,16 @@ out="$(cd "$tmp/cdpath" && CDPATH="$tmp/elsewhere" "$here/../prose.sh" english d
 status=$?
 want "CDPATH" 1 "Vale on docs/guide.md:" "Google.Latin (error)"
 
+# The fixes that a failure names: one for a format that the tool doesn't
+# read, one for settings that it can't load, and one for a cause that the
+# checks don't know.
+fix_settings="Fix: correct the settings of the repository that the reason names."
+fix_unknown="Fix: run setup.sh of lovaizu/checks again, and if the check still fails, report it in an issue of lovaizu/checks with this message."
+
 # When a rule fails on one file, the other files keep their findings, and
-# the reason names the file and the fix. A rule of the test, which prints
-# to stdout and fails on BOOM, runs with the packages of textlint.
+# the reason names the file, with the fix of an unknown cause. A rule of
+# the test, which prints to stdout and fails on BOOM, runs with the
+# packages of textlint, and so does a check without @textlint/kernel.
 root="$here/.."
 . "$here/../lib/paths.sh"
 mkdir -p "$tmp/boom/node_modules/textlint-rule-boom" "$tmp/boom/repo"
@@ -134,72 +141,96 @@ printf 'module.exports = (context) => ({ [context.Syntax.Str](node) { console.lo
 printf '{"rules": {"boom": true}}\n' >"$tmp/boom/repo/.textlintrc.json"
 cp "$here/cases/japanese/fail-japanese.md" "$tmp/boom/repo/good.md"
 printf 'BOOM\n' >"$tmp/boom/repo/boom.md"
-out="$(cd "$tmp/boom/repo" && mise -C "$here/.." exec -- node "$here/../textlint/check.mjs" "$tmp/boom/node_modules" "$PWD" "$tmp/boom" "$tmp/boom/repo/good.md" "$tmp/boom/repo/boom.md" 2>&1)"
-status=$?
+# Runs check.mjs in $tmp/boom/repo with the node_modules of $tmp/boom on
+# good.md and boom.md, and sets $out to its report.
+run_boom() {
+  out="$(cd "$tmp/boom/repo" && mise -C "$here/.." exec -- node "$here/../textlint/check.mjs" "$tmp/boom/node_modules" "$PWD" "$tmp/boom" "$tmp/boom/repo/good.md" "$tmp/boom/repo/boom.md" 2>&1)"
+  status=$?
+  printed="$out"
+  out="$(cat "$tmp/boom/textlint.json")"
+}
+run_boom
+want "a rule that fails on one file" 0 '"file":"'"$tmp/boom/repo/boom.md"'","kind":"unknown","reason":"the rule of the test failed' '"file":"'"$tmp/boom/repo/good.md"'"' "no-mix-dearu-desumasu"
+out="$printed"
 want "a rule that prints" 0 "A line of the rule"
-out="$(cat "$tmp/boom/textlint.json")"
-want "a rule that fails on one file" 0 "textlint didn't check $tmp/boom/repo/boom.md: " "the rule of the test failed" "failed. Fix: turn off in the settings of textlint" '"file":"'"$tmp/boom/repo/good.md"'"' "no-mix-dearu-desumasu"
-unwanted "a rule that fails on one file" "didn't check $tmp/boom/repo/good.md"
+rm "$tmp/boom/node_modules/@textlint" && mkdir "$tmp/boom/node_modules/@textlint"
+for module in "$textlint_dir"/node_modules/@textlint/*; do [ "${module##*/}" = kernel ] || ln -s "$module" "$tmp/boom/node_modules/@textlint/"; done
+run_boom
+want "a check without a package" 0 '"kind":"unknown","reason":"Cannot find module '"'"'@textlint/kernel'"'"'' '"stack":'
 
-# A warning of Node on stderr is no reason to skip the check, and the
-# reason of a failure comes through it.
+# A failure of Node before check.mjs writes its report gives what Node
+# printed in full, with the fix of an unknown cause. A warning of Node on
+# stderr is no reason to skip the check.
 printf 'process.emitWarning("A warning of the test");\n' >"$tmp/warn.cjs"
 out="$(cd "$here/cases/japanese" && NODE_OPTIONS="--require $tmp/warn.cjs" "$here/../prose.sh" japanese fail-japanese.md 2>&1)"
 status=$?
 want "a warning of Node" 1 "no-mix-dearu-desumasu (error)"
 unwanted "a warning of Node" "didn't check"
-mkdir "$tmp/js"
-printf 'module.exports = {};\n' >"$tmp/js/.textlintrc.js"
-cp "$here/cases/japanese/pass-japanese.md" "$tmp/js/"
-out="$(cd "$tmp/js" && NODE_OPTIONS="--require $tmp/warn.cjs" "$here/../prose.sh" japanese pass-japanese.md 2>&1)"
+long="$(printf 'A reason of the test%.0s, ' $(seq 1 60))the end"
+printf 'throw new Error("%s");\n' "$long" >"$tmp/crash.cjs"
+out="$(cd "$here/cases/japanese" && NODE_OPTIONS="--require $tmp/warn.cjs --require $tmp/crash.cjs" "$here/../prose.sh" japanese fail-japanese.md 2>&1)"
 status=$?
-want "a reason with a warning of Node" 1 "textlint didn't check the Japanese: " ".textlintrc.js is JavaScript"
+want "a failure of Node" 1 "textlint didn't check the files of the job japanese: Node exited 1 before check.mjs wrote its report. $fix_unknown" "stderr:" "$long"
 
-# Settings that textlint can't load fail with the reason and a fix that the
-# repository can take, not the advice of textlint to install a package.
+# Settings that textlint can't load fail once, with the reason and the fix
+# of settings, not the advice of textlint to install a package.
 mkdir "$tmp/rule"
-printf '{"rules": {"no-such-rule": true}}\n' >"$tmp/rule/.textlintrc.json"
-cp "$here/cases/japanese/pass-japanese.md" "$tmp/rule/"
+cp "$here/cases/japanese/pass-japanese.md" "$here/cases/japanese/fail-japanese.md" "$tmp/rule/"
+for settings in '{"rules": {"no-such-rule": true}}|"no-such-rule" is not found' \
+  '{"rules": {"preset-no-such": true}}|"preset-no-such" is not found' \
+  '{"rules": |JSON5: invalid end of input' \
+  '{"rules": {"prh": {"rulePaths": ["missing.yml"]}}}|missing.yml, which doesn'"'"'t exist'; do
+  printf '%s\n' "${settings%%|*}" >"$tmp/rule/.textlintrc.json"
+  run_in "$tmp/rule" japanese pass-japanese.md fail-japanese.md
+  want "settings $(head -c 40 "$tmp/rule/.textlintrc.json")" 1 "textlint didn't check the files of the job japanese: " "${settings#*|}" "$fix_settings"
+  unwanted "settings $(head -c 40 "$tmp/rule/.textlintrc.json")" "FAQ"
+  [ "$(grep -c "didn't check" <<<"$out")" -eq 1 ] || { echo "Failed: settings that textlint can't load should fail once, but the check said:"; echo "$out"; failed=1; }
+done
+rm "$tmp/rule/.textlintrc.json"
+printf 'module.exports = {};\n' >"$tmp/rule/.textlintrc.js"
 run_in "$tmp/rule" japanese pass-japanese.md
-want "a rule that isn't installed" 1 '"no-such-rule" is not found' "Fix: in the settings of textlint of the repository, turn off or remove each rule"
-unwanted "a rule that isn't installed" "FAQ"
-printf '{"rules": {"preset-no-such": true}}\n' >"$tmp/rule/.textlintrc.json"
-run_in "$tmp/rule" japanese pass-japanese.md
-want "a preset that isn't installed" 1 "textlint-rule-preset-no-such" "Fix: in the settings of textlint of the repository"
-printf '{"rules": \n' >"$tmp/rule/.textlintrc.json"
-run_in "$tmp/rule" japanese pass-japanese.md
-want "settings that aren't JSON" 1 ".textlintrc.json: " "Fix: correct the syntax of the file."
-# Settings of Vale that Vale can't load fail with the fix.
+want "settings in JavaScript" 1 ".textlintrc.js is JavaScript" "$fix_settings"
+rm "$tmp/rule/.textlintrc.js"
+# Settings that turn off each rule load, and the check passes.
+printf '{"rules": {"preset-ja-technical-writing": false, "@textlint-ja/preset-ai-writing": false, "ja-hiragana-keishikimeishi": false, "ja-hiragana-hojodoushi": false, "ja-hiragana-fukushi": false, "ja-space-between-half-and-full-width": false}}\n' >"$tmp/rule/.textlintrc.json"
+run_in "$tmp/rule" japanese fail-japanese.md
+want "settings with no rule" 0
+unwanted "settings with no rule" "didn't check"
+
+# Settings of Vale that Vale can't load fail with the reason, where in the
+# settings, and the fix of settings.
 mkdir "$tmp/vale"
 printf '[*]\nBasedOnStyles = NoSuchStyle\n' >"$tmp/vale/.vale.ini"
 cp "$here/cases/english/pass-english.md" "$tmp/vale/"
 run_in "$tmp/vale" english pass-english.md
-want "settings of Vale that Vale can't load" 1 "NoSuchStyle" "Fix: correct the settings of Vale of the repository"
-# A Vale that fails with no message, or with JSON that has no Text, still
-# gives a reason. A function named vale takes the place of the program.
-for fake in 'return 2' 'echo "{\"Code\": \"E1\"}" >&2; return 2'; do
-  out="$(cd "$here/cases/english" && bash -c '. "$1/lib/lib.sh"; vale() { '"$fake"'; }; check_english "$PWD/pass-english.md"; printf "%s\n" "${notes[@]}"' _ "$here/.." 2>&1)"
+want "settings of Vale that Vale can't load" 1 "Style 'NoSuchStyle' isn't on the StylesPath" ".vale.ini, line 2). $fix_settings"
+# A Vale that fails for no reason that the checks know gives what it
+# printed, with the fix of an unknown cause. A function named vale takes
+# the place of the program, and fakes each run but ls-config.
+for fake in 'return 2' 'echo "{\"Code\": \"E1\"}" >&2; return 2' 'case "$*" in *line*) echo "[$file]:E100:the test broke" >&2 ;; esac; return 2'; do
+  out="$(cd "$here/cases/english" && bash -c '. "$1/lib/lib.sh"; file="$PWD/pass-english.md"; vale() { case "$1" in ls-config) command vale "$@"; return ;; esac; '"$fake"'; }; check_english "$file"; printf "%s\n" "${notes[@]}"' _ "$here/.." 2>&1)"
   status=0
   case "$fake" in
-    'return 2') want "a Vale that says nothing" 0 "Vale didn't check the English: it exited 2 with no message" ;;
-    *) want "a Vale with JSON that has no Text" 0 'Vale didn'"'"'t check the English: {"Code": "E1"}' ;;
+    'return 2') want "a Vale that says nothing" 0 "Vale didn't check the files of the job english: Vale exited 2. $fix_unknown" ;;
+    echo*) want "a Vale with JSON that has no Text" 0 "Vale exited 2. $fix_unknown" '{"Code": "E1"}' ;;
+    *) want "a Vale that fails on one file" 0 "Vale didn't check $here/cases/english/pass-english.md: the test broke. $fix_unknown" ;;
   esac
 done
 
-# A file that Vale can't read fails, with the reason that Vale gives, and
-# the other files of the run keep their findings. reStructuredText needs
-# rst2html, so this case runs where rst2html isn't installed.
-# Vale runs again only on the files that the failed run didn't report: a
-# function named vale logs each run.
+# A file that Vale can't read fails, with the reason that Vale gives and the
+# fix of a format, and the other files of the run keep their findings.
+# reStructuredText needs rst2html, so this case runs where rst2html isn't
+# installed. Vale runs only twice, on all the files: once for the findings,
+# and once for the names of the files that it couldn't read. A function
+# named vale logs each run.
 if ! command -v rst2html >/dev/null; then
   printf 'Title\n=====\n\nA sentence.\n' >"$tmp/case.rst"
   run_in "$here/cases/english" english "$tmp/case.rst" fail-english.md
-  want "a reStructuredText file" 1 "rst2html not found" "Fix: leave the file out of the job english" "Google.Latin (error)"
+  want "a reStructuredText file" 1 "rst2html not found; it's needed to read reStructuredText. Fix: leave each file out of the job english" "Google.Latin (error)"
   out="$(cd "$here/cases/english" && bash -c '. "$1/lib/lib.sh"; log="$2"; vale() { echo "vale $*" >>"$log"; command vale "$@"; }; check_english "$PWD/fail-english.md" "$PWD/pass-english.md" "$3"' _ "$here/.." "$tmp/vale.log" "$tmp/case.rst" 2>&1; cat "$tmp/vale.log")"
   status=0
-  want "a run of Vale again" 0 "vale --no-exit --output=JSON $here/cases/english/pass-english.md" "vale --no-exit --output=JSON $tmp/case.rst"
-  ! grep -qxF "vale --no-exit --output=JSON $here/cases/english/fail-english.md" <<<"$out" ||
-    { echo "Failed: Vale shouldn't run again on fail-english.md, which the failed run reported, but it ran:"; echo "$out"; failed=1; }
+  want "the runs of Vale" 0 "vale --no-exit --output=JSON $here/cases/english/fail-english.md $here/cases/english/pass-english.md $tmp/case.rst" "vale --no-exit --output=line $here/cases/english/fail-english.md"
+  [ "$(grep -c "^vale --no-exit" <<<"$out")" -eq 2 ] || { echo "Failed: Vale should run twice on the files, but it ran:"; echo "$out"; failed=1; }
 fi
 
 # A file of a format that textlint doesn't read fails, with the formats
@@ -208,7 +239,7 @@ fi
 # gives the plugin of Markdown more extensions gets those checked too.
 printf '# この設定は、ルートに置くものである。\n' >"$tmp/case.py"
 run_in "$here/cases/japanese" japanese "$tmp/case.py" fail-japanese.md
-want "a Python file" 1 "textlint didn't check $(cd -P "$tmp" && pwd)/case.py, as it reads only the files that end in .txt, .text, .md, " "Fix: leave the file out of the job japanese" "no-mix-dearu-desumasu (error)"
+want "a Python file" 1 "textlint didn't check $(cd -P "$tmp" && pwd)/case.py: textlint reads only the files that end in .txt, .text, .md, " "Fix: leave each file out of the job japanese" "no-mix-dearu-desumasu (error)"
 mkdir "$tmp/mdx"
 printf '{"plugins": {"@textlint/markdown": {"extensions": [".mdx"]}}}\n' >"$tmp/mdx/.textlintrc.json"
 cp "$here/cases/japanese/fail-japanese.md" "$tmp/mdx/guide.mdx"
