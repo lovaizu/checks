@@ -7,6 +7,9 @@
 # level shows in the report. A check that can't run fails too, as it would
 # let a finding through.
 set -uo pipefail
+# cd follows CDPATH for a relative path, which would lead each path below to
+# another directory.
+unset CDPATH
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 "$here/setup.sh" || exit 1
 . "$here/lib/lib.sh"
@@ -26,10 +29,19 @@ files=()
 for file in "$@"; do
   # A link is the file that it points to, which the check reads apart. A
   # binary file, such as an image, holds no text.
-  [ -f "$file" ] && [ ! -L "$file" ] && grep -Iq . "$file" || continue
-  # The path is absolute, with no link, . or .. in it, as textlint reports
-  # it, so that each finding finds its file.
-  file="$(cd "$(dirname "$file")" && pwd -P)/${file##*/}"
+  [ -f "$file" ] && [ ! -L "$file" ] || continue
+  grep -Iq . "$file"
+  case $? in
+    0) ;;
+    1) continue ;;
+    *)
+      notes+=("The check couldn't read $file. Fix: make the file readable, or leave it out of the job.")
+      continue
+      ;;
+  esac
+  # The path is absolute, with no link, . or .. in it, as Vale reports it,
+  # so that each finding finds its file.
+  file="$(cd -- "$(dirname -- "$file")" && pwd -P)/${file##*/}"
   files+=("$file")
 done
 [ "${#files[@]}" -eq 0 ] || "$check" "${files[@]}"

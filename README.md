@@ -17,7 +17,7 @@ Each language has a file and a job of its own, as which languages a repository h
   - [`textlint-rule-prh`](https://github.com/textlint-rule/textlint-rule-prh), when the repository names its dictionary
   - The filters [`textlint-filter-rule-allowlist`](https://github.com/textlint/textlint-filter-rule-allowlist) and [`textlint-filter-rule-comments`](https://github.com/textlint/textlint-filter-rule-comments)
 
-Each tool reads a file as it reads the file's format, and the checks change nothing in it. Vale reads Markdown and the [other formats that it knows](https://docs.vale.sh/formats), and reads the rest as plain text. A format that needs a program that isn't installed, such as `rst2html` for reStructuredText, fails the check. textlint reads Markdown and plain text, and a file of another format fails the check. Give a job only the files of a format that its tool reads.
+Each tool reads a file as it reads the file's format, and the checks change nothing in it. Vale reads Markdown and the [other formats that it knows](https://docs.vale.sh/formats), and reads the rest as plain text. A format that needs a program that isn't installed, such as `rst2html` for reStructuredText, fails the check. textlint reads the formats of its plugins, Markdown and plain text, with the extensions that the plugins name and those that your settings add. A file of another format fails the check, and so does a file in `node_modules` or `.git`, which textlint leaves out. A file that your `.textlintignore` leaves out passes. Give a job only the files that its tool reads.
 
 A finding at the level warning or error stops the commit. A finding at a lower level, suggestion in Vale and info in textlint, shows in the report and doesn't stop the commit. Each rule keeps the level that its tool gives it.
 
@@ -43,6 +43,23 @@ pre-commit:
         - LICENSE
         - "*.lock"
 ```
+
+For a repository that holds only Japanese, give the job only the files of a format that textlint reads, such as Markdown. Each other file that you stage, such as `lefthook.yml` and `.textlintrc`, fails the check. For example:
+
+```yaml
+remotes:
+  - git_url: https://github.com/lovaizu/checks
+    ref: v0.2.0
+    configs:
+      - japanese.yml
+
+pre-commit:
+  jobs:
+    - name: japanese
+      glob: "*.md"
+```
+
+With the default glob matcher of lefthook, `*.md` matches a Markdown file in any directory.
 
 For a repository that holds both languages, give each job its files, or each job checks the files of the other language too. A file that holds both languages goes to both jobs only if you give it to both. For example, for English files in the root and Japanese files in `docs/ja`:
 
@@ -77,11 +94,11 @@ The first run installs the tools of `mise.toml` with the sha256 of `mise.lock`, 
 
 ## Change a setting
 
-Change a setting when the case of your repository needs it. The people of the repository decide it, not an agent that wants a finding to go away. Write only what you change: the checks lay your file over their defaults.
+Change a setting when the case of your repository needs it. The people of the repository decide it, not an agent that wants a finding to go away. Write only what you change: the checks lay your file over their defaults. Each tool finds your settings as it does itself, from the current directory up. lefthook runs the checks in the root of the repository, so your settings there apply to each file that the checks get, wherever the file is.
 
 ### English
 
-Write a `.vale.ini` of your own. Vale reads [`vale/.vale.ini`](vale/.vale.ini) as its defaults, and lays over them the `.vale.ini` that it finds first from the current directory up. lefthook runs the checks in the root of the repository, so that's the `.vale.ini` in the root. For example, to make a rule stop the commit, and to allow the words of your own vocabulary:
+Write a `.vale.ini` of your own. Vale reads [`vale/.vale.ini`](vale/.vale.ini) as its defaults, and lays over them the `.vale.ini` that it finds first. For example, to make a rule stop the commit, and to allow the words of your own vocabulary:
 
 ```ini
 StylesPath = styles
@@ -95,7 +112,7 @@ Vale then reads `styles/config/vocabularies/Team/accept.txt`. To leave out a pat
 
 ### Japanese
 
-Write a `.textlintrc` of your own, in JSON or YAML, where textlint looks for it, from the current directory up, as Vale does: the root of the repository, or the field `textlint` of `package.json`. textlint reads only one settings file, so the checks merge yours into [`textlint/.textlintrc.json`](textlint/.textlintrc.json), and give textlint the result. For example, to show a rule without stopping the commit, to allow a word, and to name a dictionary of `prh`:
+Write a `.textlintrc` of your own, in JSON or YAML, or the field `textlint` of `package.json`. textlint reads only one settings file, so the checks merge yours into [`textlint/.textlintrc.json`](textlint/.textlintrc.json), and give textlint the result. For example, to show a rule without stopping the commit, to allow a word, and to name a dictionary of `prh`:
 
 ```yaml
 rules:
@@ -124,7 +141,7 @@ A `.textlintrc.js` or `.textlintrc.cjs` fails the check, as JavaScript can't mer
 
 ## Check other text
 
-A repository that checks text inside another format, such as the strings of a JSON file, adds a job of its own. The job prints the text as Markdown at the line numbers of the file, and gives that file to `prose.sh english` or `prose.sh japanese`. The settings of the repository apply to that file too, wherever the job writes it, as the tools find them from the current directory.
+A repository that checks text inside another format, such as the strings of a JSON file, adds a job of its own. The job prints the text as Markdown at the line numbers of the file, and gives that file to `prose.sh english` or `prose.sh japanese`. The settings of the repository apply to that file too, as [Change a setting](#change-a-setting) says.
 
 ## Change the checks
 

@@ -74,6 +74,30 @@ pre-commit:
 YAML
 expect 1 "Vale on (LICENSE|mise.lock)" Google.Latin "Vale on README.md"
 
+# With japanese.yml alone and no glob, each file that textlint doesn't
+# read, such as lefthook.yml, fails with the formats that it reads. With
+# the glob of the README, only the Markdown goes to textlint.
+cat >lefthook.yml <<YAML
+remotes:
+  - git_url: $dir/checks
+    ref: test
+    configs:
+      - japanese.yml
+YAML
+git add -A
+expect 1 "english ❯" "japanese ❯" "textlint didn't check $dir/consumer/lefthook.yml, as it reads only the formats of its plugins"
+cat >>lefthook.yml <<YAML
+pre-commit:
+  jobs:
+    - name: japanese
+      glob: "*.md"
+YAML
+git add -A
+expect 1 "didn't check" "textlint on docs/ja/guide.md:" "no-mix-dearu-desumasu (error)" "textlint on README.md:"
+# The cases below change lefthook.yml, which lefthook would stash if it
+# were staged, in a repository with no commit.
+git rm -q --cached lefthook.yml
+
 # With both files, the repository gives each job its files. With
 # doublestar, *.md matches the files in the root alone, and
 # docs/ja/**/*.md matches the files right in docs/ja too.
