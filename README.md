@@ -6,10 +6,10 @@ The checks that lovaizu repositories share. Each repository names this one in it
 
 The checks are for the text that people and agents read. They stop text that falls short of the standard, so that the writer looks at it again and rewrites it for its reader.
 
-`hooks.yml` gives each language a job of its own, as which files hold English and which hold Japanese is the case of each repository:
+Each language has a file and a job of its own, as which languages a repository holds, and in which files, is the case of each repository:
 
-- `english` checks the English, by [Vale](https://vale.sh) with the [Google developer documentation style](https://developers.google.com/style).
-- `japanese` checks the Japanese, by [textlint](https://textlint.org). It runs these rules:
+- `english` of `english.yml` checks the English, by [Vale](https://vale.sh) with the [Google developer documentation style](https://developers.google.com/style).
+- `japanese` of `japanese.yml` checks the Japanese, by [textlint](https://textlint.org). It runs these rules:
   - [`textlint-rule-preset-ja-technical-writing`](https://github.com/textlint-ja/textlint-rule-preset-ja-technical-writing)
   - [`@textlint-ja/textlint-rule-preset-ai-writing`](https://github.com/textlint-ja/textlint-rule-preset-ai-writing)
   - [`textlint-rule-ja-hiragana-keishikimeishi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-keishikimeishi), [`textlint-rule-ja-hiragana-hojodoushi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-hojodoushi) and [`textlint-rule-ja-hiragana-fukushi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-fukushi)
@@ -25,7 +25,19 @@ The report says what the checks are for before the findings, and again in short 
 
 ## Use it in a repository
 
-Install [mise](https://mise.jdx.dev/installing-mise.html) and [lefthook](https://lefthook.dev). Then name this repository in `lefthook.yml`, at a tag, and give each job its files with `glob` and `exclude`. Neither job has a glob of its own, so a job that you don't name checks each staged file. A file that holds both languages goes to both jobs only if you give it to both. For example, for English files in the root and Japanese files in `docs/ja`:
+Install [mise](https://mise.jdx.dev/installing-mise.html) and [lefthook](https://lefthook.dev). Then name this repository in `lefthook.yml`, at a tag, and name in `configs` the file of each language that your repository holds. Neither job has a glob of its own, so a job checks each staged file unless you give it its files with `glob` and `exclude`.
+
+For a repository that holds only English:
+
+```yaml
+remotes:
+  - git_url: https://github.com/lovaizu/checks
+    ref: v0.1.0
+    configs:
+      - english.yml
+```
+
+For a repository that holds both languages, give each job its files, or each job checks the files of the other language too. A file that holds both languages goes to both jobs only if you give it to both. For example, for English files in the root and Japanese files in `docs/ja`:
 
 ```yaml
 glob_matcher: doublestar
@@ -33,7 +45,8 @@ remotes:
   - git_url: https://github.com/lovaizu/checks
     ref: v0.1.0
     configs:
-      - hooks.yml
+      - english.yml
+      - japanese.yml
 
 pre-commit:
   jobs:
@@ -45,7 +58,7 @@ pre-commit:
       glob: "docs/ja/**/*.md"
 ```
 
-With [`glob_matcher: doublestar`](https://lefthook.dev/configuration/glob_matcher/), `*.md` matches only the files in the root, and `docs/ja/**/*.md` matches the files in `docs/ja` and below. To turn off a job, give it `skip: true`.
+With [`glob_matcher: doublestar`](https://lefthook.dev/configuration/glob_matcher/), `*.md` matches only the files in the root, and `docs/ja/**/*.md` matches the files in `docs/ja` and below. To turn off a language, leave its file out of `configs`. The settings of the files in `configs` take precedence over those of your `lefthook.yml`, so `skip: true` on a job doesn't turn it off.
 
 Run `lefthook install` once in each clone. In CI, add this step after `actions/checkout`, at the commit of the same tag:
 
@@ -109,4 +122,4 @@ A repository that checks text inside another format, such as the strings of a JS
 - A tool: change its version in `mise.toml`, then run `mise lock --platform linux-x64,linux-arm64,macos-arm64,macos-x64`.
 - textlint or a rule: change its version in `textlint/package.json`, then run `npm install --package-lock-only --ignore-scripts` in `textlint`.
 
-`tests/run.sh` checks that each case in `tests/cases/english` and `tests/cases/japanese` passes, shows, or fails as its name says. `tests/consumer.sh` checks a repository that names this one, with its own globs, `.vale.ini` and `.textlintrc`.
+`tests/run.sh` checks that each case in `tests/cases/english` and `tests/cases/japanese` passes, shows, or fails as its name says. `tests/consumer.sh` checks a repository that names this one, with one language and with both, with its own globs, `.vale.ini` and `.textlintrc`.

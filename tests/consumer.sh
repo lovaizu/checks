@@ -1,10 +1,11 @@
 #!/bin/bash
 # Runs ci.sh, as the action does, in a new repository whose lefthook.yml
 # names this repository in remotes, at the commit checked out here. The
-# repository gives the English and the Japanese jobs their files by glob,
-# and changes the settings of the tools in their own files, which the
-# checks lay over their defaults. A run that checks no file would pass, and that's what this
-# test catches.
+# repository chooses the languages by the files in configs. With one
+# language, its job checks each file. With both, the repository gives each
+# job its files by glob. The repository changes the settings of the tools in
+# their own files, which the checks lay over their defaults. A run that
+# checks no file would pass, and that's what this test catches.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$(mktemp -d)"
@@ -35,22 +36,6 @@ git -C "$dir/checks" checkout -q "$(git -C "$here" rev-parse HEAD)"
 git -C "$dir/checks" tag test
 git init -q "$dir/consumer"
 cd "$dir/consumer" || exit 1
-# With doublestar, *.md matches the files in the root alone, and
-# docs/ja/**/*.md matches the files right in docs/ja too.
-cat >lefthook.yml <<YAML
-glob_matcher: doublestar
-remotes:
-  - git_url: $dir/checks
-    ref: test
-    configs:
-      - hooks.yml
-pre-commit:
-  jobs:
-    - name: english
-      glob: "*.md"
-    - name: japanese
-      glob: "docs/ja/**/*.md"
-YAML
 # Cases with findings, as tests/run.sh knows them, and a file that the
 # globs leave out. The English README names a Japanese key, which the
 # Japanese rules would read as a sentence of Japanese.
@@ -60,6 +45,36 @@ printf '\nPress the key ⌘英かな to switch the input method to English, and 
 cp "$here/tests/cases/japanese/fail-japanese.md" docs/ja/guide.md
 cp "$here/tests/cases/english/fail-english.md" left-out.txt
 git add -A
+
+# With english.yml alone, only the English job runs, and Vale checks each
+# file, the README with its Japanese key too.
+cat >lefthook.yml <<YAML
+remotes:
+  - git_url: $dir/checks
+    ref: test
+    configs:
+      - english.yml
+YAML
+expect 1 "japanese ❯" "english ❯" Google.Latin "Vale on README.md" "Vale on left-out.txt"
+
+# With both files, the repository gives each job its files. With
+# doublestar, *.md matches the files in the root alone, and
+# docs/ja/**/*.md matches the files right in docs/ja too.
+cat >lefthook.yml <<YAML
+glob_matcher: doublestar
+remotes:
+  - git_url: $dir/checks
+    ref: test
+    configs:
+      - english.yml
+      - japanese.yml
+pre-commit:
+  jobs:
+    - name: english
+      glob: "*.md"
+    - name: japanese
+      glob: "docs/ja/**/*.md"
+YAML
 expect 1 "textlint on README.md" Google.Latin "Vale on README.md" "textlint on docs/ja/guide.md" "no-mix-dearu-desumasu (error)"
 expect 1 left-out.txt
 expect 1 "Vale on docs/ja/guide.md"
@@ -72,6 +87,6 @@ expect 0 left-out.txt "Google.Latin (suggestion)" "no-mix-dearu-desumasu (info)"
 
 # With no remote, pre-commit has no job, and ci.sh must fail, not pass.
 printf 'pre-commit:\n  jobs: []\n' >lefthook.yml
-expect 1 left-out.txt "has no job"
+expect 1 left-out.txt "has no job" "english.yml, japanese.yml, or both"
 [ "$failed" -eq 0 ] && echo "The consumer cases passed."
 exit "$failed"

@@ -1,9 +1,9 @@
-# The checks of this repository: the same ones that it shares, on its
+# The checks of this repository: the English one that it shares, on its
 # Markdown, as Vale reads the other files here as plain text, with the code
-# in them. This repository holds no Japanese. The cases of tests/cases
-# have findings on purpose.
+# in them. This repository holds no Japanese, so it doesn't extend
+# japanese.yml. The cases of tests/cases have findings on purpose.
 extends:
-  - hooks.yml
+  - english.yml
 
 pre-commit:
   jobs:
@@ -11,5 +11,3 @@ pre-commit:
       glob: "*.md"
       exclude:
         - "tests/cases/**"
-    - name: japanese
-      skip: true

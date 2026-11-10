@@ -1,0 +1,12 @@
+# The English check that a repository gets when its lefthook.yml names this
+# repository in remotes, with english.yml in configs. A job runs in the root
+# of that repository, and its script comes from .lefthook/ of this one.
+# Which files hold English is the repository's case, so the job has no glob:
+# it checks each staged file, unless the repository gives it its files with
+# glob and exclude of a job of the same name in its lefthook.yml.
+pre-commit:
+  jobs:
+    - name: english
+      script: prose.sh
+      runner: bash
+      args: "english {staged_files}"

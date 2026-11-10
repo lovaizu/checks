@@ -8,7 +8,7 @@ lefthook install
 jobs="$(lefthook dump --format json | jq '.["pre-commit"].jobs // [] | length')"
 if [ "$jobs" -eq 0 ]; then
   echo "ci.sh: the pre-commit hook of lefthook.yml has no job, so ci.sh would check nothing." >&2
-  echo "  Fix: name lovaizu/checks in the remotes of lefthook.yml, with configs: [hooks.yml]." >&2
+  echo "  Fix: name lovaizu/checks in the remotes of lefthook.yml, with english.yml, japanese.yml, or both in configs." >&2
   exit 1
 fi
 lefthook run pre-commit --all-files --no-auto-install
