@@ -20,12 +20,19 @@ case "${1:-}" in
     ;;
 esac
 shift
+# The current directory with no link in it, the start of each path.
+cd -P . || exit 1
+files=()
 for file in "$@"; do
-  # A link is the file that it points to, which the check reads apart.
-  [ -f "$file" ] && [ ! -L "$file" ] || continue
-  case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
-  check_prose "$file" "$check"
+  # A link is the file that it points to, which the check reads apart. A
+  # binary file, such as an image, holds no text.
+  [ -f "$file" ] && [ ! -L "$file" ] && grep -Iq . "$file" || continue
+  # The path is absolute, with no link, . or .. in it, as textlint reports
+  # it, so that each finding finds its file.
+  file="$(cd "$(dirname "$file")" && pwd -P)/${file##*/}"
+  files+=("$file")
 done
+[ "${#files[@]}" -eq 0 ] || "$check" "${files[@]}"
 
 if [ "${#notes[@]}" -gt 0 ]; then
   printf 'prose.sh: %s\n' "${notes[@]}" >&2

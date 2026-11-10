@@ -8,15 +8,8 @@
 // <directory> up to the root: in each directory, .textlintrc.cjs,
 // .textlintrc.js, .textlintrc.json, .textlintrc.yaml, .textlintrc.yml and
 // .textlintrc, then the field textlint of package.json. It prints the path
-// of the file that it found, if any.
-//
-// A repository writes only what it changes, so a value of the repository
-// changes only its own part of the defaults:
-//
-// - An object adds its keys to those of the defaults, each merged the same way.
-// - `true` turns on a rule, and keeps the options of the defaults.
-// - An array adds its items to those of the defaults.
-// - Any other value, such as `false`, takes the place of the default.
+// of the file that it found, if any. "Change a setting" in README.md says
+// how the settings of the repository lie over the defaults.
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
@@ -25,6 +18,7 @@ const [modules, start, output, levelsOutput] = process.argv.slice(2);
 const require = createRequire(path.join(path.resolve(modules), "x.js"));
 const JSON5 = require("json5");
 const yaml = require("js-yaml");
+const { normalizeTextlintRuleKey, normalizeTextlintFilterRuleKey, normalizeTextlintRulePresetKey } = require("@textlint/utils");
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -73,6 +67,14 @@ function merge(base, over) {
   return over;
 }
 
+// textlint takes the name of a rule, a preset or a filter in short, such as
+// prh, or as its package, such as textlint-rule-prh. Each key gets the short
+// name, as textlint gives it, so that the two names of a rule merge.
+function normalize(config) {
+  const keys = (entries, name) => (isObject(entries) ? Object.fromEntries(Object.entries(entries).map(([key, value]) => [name(key), value])) : entries);
+  return { ...config, rules: keys(config.rules, normalizeTextlintRuleKey), filters: keys(config.filters, normalizeTextlintFilterRuleKey) };
+}
+
 // textlint reads the paths in the options of a rule from the directory of
 // its settings file. The merged file lives elsewhere, so each path that
 // the repository names becomes absolute.
@@ -85,17 +87,17 @@ function resolvePaths(config, dir) {
   return config;
 }
 
-const isPreset = (key) => /(^|\/)(textlint-rule-)?preset-/.test(key);
+// A key has the short name, such as preset-ja-technical-writing, or
+// @textlint-ja/preset-ai-writing.
+const isPreset = (key) => /^(@[^/]+\/)?preset-/.test(key);
 const loadPreset = (key) => {
-  const [scope, name] = key.startsWith("@") ? key.split("/") : [null, key];
-  const full = name.startsWith("textlint-rule-") ? name : `textlint-rule-${name}`;
-  const loaded = require(scope ? `${scope}/${full}` : full);
+  const loaded = require(key.replace(/^(@[^/]+\/)?/, "$1textlint-rule-"));
   return loaded.default || loaded;
 };
 
 // A preset that the defaults turn on with `true` gets its own settings of
 // each rule, so that the settings of the repository merge into those.
-const defaults = JSON.parse(fs.readFileSync(new URL(".textlintrc.json", import.meta.url), "utf8"));
+const defaults = normalize(JSON.parse(fs.readFileSync(new URL(".textlintrc.json", import.meta.url), "utf8")));
 for (const [key, value] of Object.entries(defaults.rules)) {
   if (isPreset(key) && value === true) defaults.rules[key] = { ...(loadPreset(key).rulesConfig || {}) };
 }
@@ -105,7 +107,7 @@ try {
 } catch (error) {
   fail(`textlint couldn't read its settings: ${error.message}`);
 }
-const config = found ? merge(defaults, resolvePaths(found.config, path.dirname(found.file))) : defaults;
+const config = found ? merge(defaults, resolvePaths(normalize(found.config), path.dirname(found.file))) : defaults;
 fs.writeFileSync(output, JSON.stringify(config, null, 2));
 
 // The level that the settings give each rule, by the ID that textlint
@@ -118,11 +120,11 @@ const levels = {};
 for (const [key, value] of Object.entries(config.rules || {})) {
   if (value === false) continue;
   if (!isPreset(key)) {
-    if (levelOf(value)) levels[key.replace(/^textlint-rule-/, "")] = levelOf(value);
+    if (levelOf(value)) levels[key] = levelOf(value);
     continue;
   }
   const preset = loadPreset(key);
-  const id = key.replace(/(^|\/)(textlint-rule-)?preset-/, "$1");
+  const id = normalizeTextlintRulePresetKey(key);
   for (const rule of Object.keys(preset.rules || {})) {
     const own = isObject(value) && value[rule] !== undefined ? value[rule] : (preset.rulesConfig || {})[rule];
     if (levelOf(own)) levels[`${id}/${rule}`] = levelOf(own);

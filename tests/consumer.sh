@@ -11,19 +11,23 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$(mktemp -d)"
 trap 'rm -rf "$dir"' EXIT
 failed=0
-# Fails the test when ci.sh doesn't exit $1 with each text that the rest
-# names, or prints text $2, which the globs leave out.
+# The command that expect runs: ci.sh, as the action runs it, unless a case
+# names another.
+run=(bash "$here/ci.sh")
+# Fails the test when the command doesn't exit $1 with each text that the
+# rest names, or prints a line that matches the extended regular expression
+# $2, which the case leaves out.
 expect() {
   local code="$1" left="$2" out status want
   shift 2
-  out="$(bash "$here/ci.sh" 2>&1)"
+  out="$("${run[@]}" 2>&1)"
   status=$?
   for want in "$@"; do
     grep -qF -- "$want" <<<"$out" || status="$status, without $want"
   done
-  grep -qF -- "$left" <<<"$out" && status="$status, with $left"
+  grep -qE -- "$left" <<<"$out" && status="$status, with $left"
   if [ "$status" != "$code" ]; then
-    echo "Failed: ci.sh should exit $code with $*, but it exited $status with:"
+    echo "Failed: ${run[*]} should exit $code with $*, but it exited $status with:"
     echo "$out"
     failed=1
   fi
@@ -44,6 +48,8 @@ cp "$here/tests/cases/english/fail-english.md" README.md
 printf '\nPress the key ⌘英かな to switch the input method to English, and press it again to go back to the Japanese input method of macOS.\n' >>README.md
 cp "$here/tests/cases/japanese/fail-japanese.md" docs/ja/guide.md
 cp "$here/tests/cases/english/fail-english.md" left-out.txt
+# Files that hold no prose, which a job with no glob checks too.
+cp "$here/LICENSE" "$here/mise.lock" .
 git add -A
 
 # With english.yml alone, only the English job runs, and Vale checks each
@@ -55,7 +61,18 @@ remotes:
     configs:
       - english.yml
 YAML
-expect 1 "japanese ❯" "english ❯" Google.Latin "Vale on README.md" "Vale on left-out.txt"
+expect 1 "japanese ❯" "english ❯" Google.Latin "Vale on README.md" "Vale on left-out.txt" "Vale on LICENSE" "Vale on mise.lock"
+# The repository leaves out the files that hold no prose, as the README
+# says.
+cat >>lefthook.yml <<YAML
+pre-commit:
+  jobs:
+    - name: english
+      exclude:
+        - LICENSE
+        - "*.lock"
+YAML
+expect 1 "Vale on (LICENSE|mise.lock)" Google.Latin "Vale on README.md"
 
 # With both files, the repository gives each job its files. With
 # doublestar, *.md matches the files in the root alone, and
@@ -84,6 +101,37 @@ printf '[*]\nGoogle.Latin = suggestion\n' >.vale.ini
 printf 'rules:\n  preset-ja-technical-writing:\n    no-mix-dearu-desumasu:\n      severity: info\n' >.textlintrc
 git add -A
 expect 0 left-out.txt "Google.Latin (suggestion)" "no-mix-dearu-desumasu (info)"
+
+# The settings hold too for a file outside the repository, such as the text
+# that a job prints to check other text: each tool finds them from the
+# current directory up, the root of the repository.
+mkdir "$dir/out"
+cp "$here/tests/cases/english/fail-english.md" "$dir/out/english.md"
+cp "$here/tests/cases/japanese/fail-japanese.md" "$dir/out/japanese.md"
+run=(bash "$dir/checks/prose.sh" english "$dir/out/english.md")
+expect 0 "Google.Latin \((warning|error)\)" "Google.Latin (suggestion)"
+run=(bash "$dir/checks/prose.sh" japanese "$dir/out/japanese.md")
+expect 0 "no-mix-dearu-desumasu \(error\)" "no-mix-dearu-desumasu (info)"
+run=(bash "$here/ci.sh")
+
+# A rule, a preset or a filter named by its package is the same as by its
+# short name: the settings merge into the defaults, and a path in them is
+# read from the root of the repository.
+cat >.textlintrc <<YAML
+rules:
+  textlint-rule-preset-ja-technical-writing:
+    no-mix-dearu-desumasu: false
+  textlint-rule-prh:
+    rulePaths:
+      - prh.yml
+filters:
+  textlint-filter-rule-allowlist:
+    allow:
+      - 設定
+YAML
+printf 'version: 1\nrules:\n  - expected: 最上位\n    pattern: ルート\n  - expected: 構成\n    pattern: 設定\n' >prh.yml
+git add -A
+expect 1 "no-mix-dearu-desumasu|=> 構成" "prh (error)" "=> 最上位"
 
 # With no remote, pre-commit has no job, and ci.sh must fail, not pass.
 printf 'pre-commit:\n  jobs: []\n' >lefthook.yml
