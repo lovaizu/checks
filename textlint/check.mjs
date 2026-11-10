@@ -1,6 +1,6 @@
 // Checks the Japanese of each file given with textlint, with the settings
 // of config.mjs, and writes a report as JSON to <work>/textlint.json:
-// {source, files: [{file, findings: [{line, check, level, message}]}],
+// {files: [{file, source, findings: [{line, check, level, message}]}],
 // notes: [{file, kind, reason, detail}]}. A rule can print to stdout, so
 // the report goes to a file of its own. lib/lib.sh turns each note into
 // its text, with the fix of its kind: format, settings or unknown.
@@ -34,9 +34,35 @@ async function ignoredFiles() {
   return left;
 }
 
-async function main() {
-  const { config, source } = settings(modules, start);
-  const configFilePath = path.join(work, "textlintrc.json");
+// The linter of each settings file, by the directory of a file that it
+// applies to: config.mjs finds the settings from that directory up, as
+// textlint does from where it runs. A failure to load the settings is a
+// note for each file that they apply to.
+const byDir = new Map();
+const bySource = new Map();
+function linterIn(dir) {
+  if (!byDir.has(dir)) {
+    let group;
+    try {
+      const { config, source } = settings(modules, dir);
+      if (!bySource.has(source)) bySource.set(source, load(config, source, bySource.size).catch((error) => ({ note: noteOf(error) })));
+      group = bySource.get(source);
+    } catch (error) {
+      group = Promise.resolve({ note: noteOf(error) });
+    }
+    byDir.set(dir, group);
+  }
+  return byDir.get(dir);
+}
+
+function noteOf(error) {
+  const kind = error instanceof SettingsError ? "settings" : "unknown";
+  return { kind, reason: error.message, detail: kind === "unknown" ? { stack: error.stack } : undefined };
+}
+
+// Loads settings $config of settings file $source, the $n-th, for textlint.
+async function load(config, source, n) {
+  const configFilePath = path.join(work, `textlintrc-${n}.json`);
   fs.writeFileSync(configFilePath, JSON.stringify(config, null, 2));
   const { loadConfig } = require("@textlint/config-loader");
   const loaded = await loadConfig({ configFilePath, node_modulesDir: modules });
@@ -44,7 +70,7 @@ async function main() {
   // name it, which can be those of the checks.
   if (!loaded.ok) {
     const reason = [loaded.error.message, ...loaded.error.errors.map((error) => error.message)].join(": ");
-    return { source, files: [], notes: [{ kind: "unknown", reason, detail: { errors: reason } }] };
+    return { note: { kind: "unknown", reason, detail: { errors: reason } } };
   }
   const { rules, plugins, filterRules } = loaded.config;
   // The level that the settings give each rule, by the ID that textlint
@@ -57,13 +83,21 @@ async function main() {
   const { builtInPlugins, loadBuiltinPlugins } = require("textlint/lib/src/loader/TextlintrcLoader.js");
   const descriptor = (await loadBuiltinPlugins()).shallowMerge({ rules, filterRules, plugins: [...builtInPlugins, ...plugins], configBaseDir: work });
   const { createLinter } = require("textlint");
-  const linter = createLinter({ descriptor, cwd: start });
   // A plugin reads an extension only if no plugin before it reads it.
   const extensions = [...new Set(descriptor.availableExtensions)].join(", ");
+  return { source, levels, descriptor, extensions, linter: createLinter({ descriptor, cwd: start }) };
+}
+
+async function main() {
   const ignored = await ignoredFiles();
-  const report = { source, files: [], notes: [] };
+  const report = { files: [], notes: [] };
   for (const file of files) {
     if (ignored.has(file)) continue;
+    const { note, source, levels, descriptor, extensions, linter } = await linterIn(path.dirname(file));
+    if (note) {
+      report.notes.push({ file, ...note });
+      continue;
+    }
     if (!descriptor.findPluginDescriptorWithExt(path.extname(file))) {
       report.notes.push({ file, kind: "format", reason: `textlint reads only the files that end in ${extensions}` });
       continue;
@@ -78,7 +112,7 @@ async function main() {
         level: levels[message.ruleId] || { 1: "warning", 2: "error", 3: "info" }[message.severity] || "error",
         message: message.message,
       }));
-      report.files.push({ file, findings });
+      report.files.push({ file, source, findings });
     } catch (error) {
       report.notes.push({ file, kind: "unknown", reason: error.message, detail: { stack: error.stack } });
     }
@@ -90,7 +124,6 @@ let report;
 try {
   report = await main();
 } catch (error) {
-  const kind = error instanceof SettingsError ? "settings" : "unknown";
-  report = { source: "", files: [], notes: [{ kind, reason: error.message, detail: kind === "unknown" ? { stack: error.stack } : undefined }] };
+  report = { files: [], notes: [noteOf(error)] };
 }
 fs.writeFileSync(path.join(work, "textlint.json"), JSON.stringify(report));

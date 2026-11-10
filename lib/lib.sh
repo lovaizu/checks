@@ -33,7 +33,7 @@ mkdir -p "$work/vale-home/vale"
 # read, or a settings file of the repository that the tool names. Any other
 # failure has a cause that they don't know, and its note gives all that the
 # tool printed.
-fix_file='save each file as text in UTF-8 that the checks can read, or leave it out of the job JOB, with glob or exclude in lefthook.yml'
+fix_file='make each file text of the repository in UTF-8 that the checks can read, or leave it out of the job JOB, with glob or exclude in lefthook.yml'
 fix_format='leave each file out of the job JOB, with glob or exclude in lefthook.yml'
 fix_settings='correct the settings of the repository that the reason names'
 # The fix of a failure in tool $1 whose cause the checks don't know: delete
@@ -50,22 +50,23 @@ fix_unknown() {
   echo "delete $installed, run $root/setup.sh, and run the check again. If the check still fails, report it with this message in an issue of $issues"
 }
 
-# The jq that turns a report of a tool, {source, files: [{file, findings:
+# The jq that turns a report of a tool, {files: [{file, source, findings:
 # [{line, check, level, message}]}], notes: [{file, kind, reason, detail}]},
 # into shell that adds to $fails, $shows and $notes. kind is file, format,
 # settings or unknown. A finding at the level warning or error fails. A
-# lower level, suggestion in Vale and info in textlint, shows. A note with
-# no file is about the whole run. The reason keeps its first line, and the
-# detail, such as what the tool printed, comes in full. Notes with the same
-# kind and reason become one.
+# lower level, suggestion in Vale and info in textlint, shows. source is
+# the settings file of the repository that applies to the file, if any. A
+# note with no file is about the whole run. The reason keeps its first
+# line, and the detail, such as what the tool printed, comes in full. Notes
+# with the same kind and reason become one.
 report_jq='
   def line: tostring | split("\n") | map(select(test("\\S"))) | (.[0] // "") | sub("[.\\s]+$"; "");
   def detail: (. // {}) | to_entries | map(select((.value // "") | test("\\S")))
     | map("\n  \(.key):\n    \(.value | sub("\\s+$"; "") | gsub("\n"; "\n    "))") | join("");
-  def part(stops): [.source as $source | .files[]
+  def part(stops): [.files[]
     | (.findings | map(select((.level == "warning" or .level == "error") == stops))) as $found
     | select($found | length > 0)
-    | "\($tool) on \(.file)\(if ($source // "") == "" then "" else ", with \($source)" end):\n"
+    | "\($tool) on \(.file)\(if (.source // "") == "" then "" else ", with \(.source)" end):\n"
       + ($found | map("- Line \(.line), \(.check) (\(.level)): \(.message // "" | sub("\\s+$"; "") | gsub("\n"; "\n  "))") | join("\n"))
       + "\n\n"] | join("");
   "fails+=\(part(true) | @sh)", "shows+=\(part(false) | @sh)",
@@ -87,9 +88,11 @@ add_report() {
   eval "$shell"
 }
 
-# Runs Vale with the defaults of the checks as its user-level settings.
+# Runs Vale in directory $vale_dir, where it starts to look for the
+# settings of the repository, with the defaults of the checks as its
+# user-level settings.
 vale_run() {
-  XDG_CONFIG_HOME="$work/vale-home" vale "$@"
+  (cd "$vale_dir" && XDG_CONFIG_HOME="$work/vale-home" vale "$@")
 }
 
 # The jq that turns an error of Vale, in its JSON, into a note. Vale names
@@ -102,20 +105,40 @@ vale_error_jq='
       then {kind: "settings", reason: "\($error.Text) (\($path), line \($error.Line))"}
       else {kind: "unknown", reason: "Vale failed", detail: {stdout: $stdout, stderr: $stderr}} end;'
 
-# Runs Vale once on all the files given, with the .vale.ini of the
-# repository over the defaults, and reads its findings as JSON, even where
-# the run fails. Vale goes on past a file that it can't read, but its JSON
-# error doesn't name the file. So when the run fails, Vale runs once more
-# with the output line on the files that its report doesn't name, and
+# Runs Vale on all the files given, once for each settings file of the
+# repository: Vale finds its settings from the directory where it runs up,
+# so it runs in the directory of each file's nearest vale.ini, .vale.ini or
+# _vale.ini, or in the current directory where no file has one.
+check_english() {
+  local file dir vale_dir group runs
+  local -A dirs=()
+  for file in "$@"; do
+    dir="${file%/*}"
+    until [ -f "$dir/.vale.ini" ] || [ -f "$dir/_vale.ini" ] || [ -f "$dir/vale.ini" ] || [ -z "$dir" ]; do dir="${dir%/*}"; done
+    dirs["$file"]="${dir:-$PWD}"
+  done
+  mapfile -d '' -t runs < <(printf '%s\0' "${dirs[@]}" | sort -zu)
+  for vale_dir in "${runs[@]}"; do
+    group=()
+    for file in "$@"; do [ "${dirs[$file]}" != "$vale_dir" ] || group+=("$file"); done
+    vale_check "${group[@]}"
+  done
+}
+
+# Runs Vale once on all the files given, in $vale_dir, with the settings of
+# the repository over the defaults, and reads its findings as JSON, even
+# where the run fails. Vale goes on past a file that it can't read, but its
+# JSON error doesn't name the file. So when the run fails, Vale runs once
+# more with the output line on the files that its report doesn't name, and
 # those errors name each file, such as "[notes.rst]:E100:rst2html not
 # found". Vale reads a file in the format that its extension names.
-check_english() {
+vale_check() {
   local out status source left=()
   out="$(vale_run ls-config 2>"$work/vale.err")"
   status=$?
   if [ "$status" -ne 0 ] || ! source="$(jq -er '.RootINI // ""' <<<"$out" 2>/dev/null)"; then
     add_report Vale english "$(jq -n --arg root "$root" --arg work "$work" --arg styles "$VALE_STYLES_PATH" --arg stdout "$out" --rawfile stderr "$work/vale.err" \
-      "$vale_error_jq {files: [], notes: [vale_error(\$stdout; \$stderr)]}")"
+      "$vale_error_jq {files: [], notes: [vale_error(\$stdout; \$stderr) + {file: \$ARGS.positional[]}]}" --args "$@")"
     return
   fi
   vale_run --no-exit --output=JSON "$@" >"$work/vale.json" 2>"$work/vale.err"
@@ -131,12 +154,11 @@ check_english() {
     --rawfile json "$work/vale.json" --rawfile errors "$work/vale-line.err" --rawfile stderr "$work/vale.err" "$vale_error_jq"'
     ($json | try fromjson catch {}) as $vale
     | [$errors | split("\n")[] | capture("^\\[(?<file>.+)\\]:E[0-9]+:(?<reason>.*)$")] as $failed
-    | {source: $source,
-      files: [$ARGS.positional[] | select(IN($failed[].file) | not)
-        | {file: ., findings: [($vale[.] // [])[] | {line: .Line, check: .Check, level: .Severity, message: .Message}]}],
+    | {files: [$ARGS.positional[] | select(IN($failed[].file) | not)
+        | {file: ., source: $source, findings: [($vale[.] // [])[] | {line: .Line, check: .Check, level: .Severity, message: .Message}]}],
       notes: ([$failed[] | if .reason | test("needed to read") then {file, reason, kind: "format"}
           else {file, reason, kind: "unknown", detail: {stderr: $errors}} end]
-        + if $status != 0 and ($failed | length) == 0 then [vale_error($json; $stderr)] else [] end
+        + if $status != 0 and ($failed | length) == 0 then [vale_error($json; $stderr) + {file: $ARGS.positional[]}] else [] end
         + [$vale | keys[] | select(IN($ARGS.positional[]) | not) | {kind: "unknown", reason: "Vale reported \(.), which it wasn'"'"'t given by that path"}])}' \
     --args "$@")"
 }
@@ -153,7 +175,7 @@ check_japanese() {
   add_report textlint japanese "$(jq -n --argjson status "$status" --arg stdout "$out" \
     --rawfile report "$work/textlint.json" --rawfile stderr "$work/textlint.err" '
     ($report | try fromjson catch null) as $written
-    | ($written // {source: "", files: [], notes: []})
+    | ($written // {files: [], notes: []})
     | if $written == null or $status != 0
       then .notes += [{kind: "unknown", reason: "Node exited \($status)\(if $written == null then " before check.mjs wrote its report" else "" end)", detail: {stdout: $stdout, stderr: $stderr}}]
       else . end')"

@@ -145,6 +145,14 @@ printf 'version: 1\nrules:\n  - expected: 最上位\n    pattern: ルート\n  -
 git add -A
 expect 1 "no-mix-dearu-desumasu|=> 構成" "prh (error)" "=> 最上位"
 
+# A staged link gets the check of the file that it points to, under the
+# path of the link, though the glob of the job leaves out that file.
+mkdir -p docs/en
+mv README.md docs/en/guide.md
+ln -s docs/en/guide.md README.md
+git add -A
+expect 1 "Vale on docs/en/guide.md" "Vale on README.md" "Google.Latin (suggestion)"
+
 # With no remote, pre-commit has no job, and ci.sh must fail, not pass.
 printf 'pre-commit:\n  jobs: []\n' >lefthook.yml
 expect 1 left-out.txt "has no job of lovaizu/checks" "english.yml, japanese.yml, or both"

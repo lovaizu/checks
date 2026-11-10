@@ -128,7 +128,7 @@ want "CDPATH" 1 "Vale on docs/guide.md:" "Google.Latin (error)"
 # that tool, setup.sh and where to report it.
 root="$here/.."
 . "$here/../lib/paths.sh"
-fix_file="Fix: save each file as text in UTF-8 that the checks can read, or leave it out of the job"
+fix_file="Fix: make each file text of the repository in UTF-8 that the checks can read, or leave it out of the job"
 fix_settings="Fix: correct the settings of the repository that the reason names."
 fix_of() { echo "Fix: $(bash -c '. "$1/lib/lib.sh"; fix_unknown "$2"' _ "$here/.." "$1")."; }
 fix_vale="$(fix_of Vale)"
@@ -224,7 +224,7 @@ for settings in '{"rules": |JSON5: invalid end of input|settings' \
   rest="${settings#*|}"
   if [ "${rest#*|}" = settings ]; then fix="$fix_settings"; else fix="$fix_textlint"; fi
   run_in "$tmp/rule" japanese pass-japanese.md fail-japanese.md
-  want "settings $(head -c 40 "$tmp/rule/.textlintrc.json")" 1 "textlint didn't check the files of the job japanese: " "${rest%%|*}" "$fix"
+  want "settings $(head -c 40 "$tmp/rule/.textlintrc.json")" 1 "textlint didn't check $(cd -P "$tmp" && pwd)/rule/pass-japanese.md, $(cd -P "$tmp" && pwd)/rule/fail-japanese.md: " "${rest%%|*}" "$fix"
   [ "$(grep -c "didn't check" <<<"$out")" -eq 1 ] || { echo "Failed: settings that textlint can't load should fail once, but the check said:"; echo "$out"; failed=1; }
 done
 rm "$tmp/rule/.textlintrc.json"
@@ -253,19 +253,19 @@ cp "$here/cases/english/pass-english.md" "$tmp/vale/"
 run_in "$tmp/vale" english pass-english.md
 want "a .vale.ini that Vale can't load" 1 "Style 'NoSuchStyle' isn't on the StylesPath" ".vale.ini, line 2). $fix_settings"
 run_lib "$here/cases/english" 'VALE_STYLES_PATH=/nonexistent' english "$here/cases/english/pass-english.md"
-want "settings of the checks that Vale can't load" 0 "Vale didn't check the files of the job english: Vale failed. Fix: delete $(mise -C "$here/.." where vale) and /nonexistent, " "Google"
+want "settings of the checks that Vale can't load" 0 "Vale didn't check $here/cases/english/pass-english.md: Vale failed. Fix: delete $(mise -C "$here/.." where vale) and /nonexistent, " "Google"
 # A Google style that Vale can't load is of the checks too.
 cp -R "$(mise -C "$here/.." where http:vale-google)" "$tmp/styles"
 printf 'extends: [\n' >"$tmp/styles/Google/Latin.yml"
 run_lib "$here/cases/english" "VALE_STYLES_PATH='$tmp/styles'" english "$here/cases/english/pass-english.md"
-want "a Google style that Vale can't load" 0 "Vale didn't check the files of the job english: Vale failed. Fix: delete $(mise -C "$here/.." where vale) and $tmp/styles, " "Latin.yml"
+want "a Google style that Vale can't load" 0 "Vale didn't check $here/cases/english/pass-english.md: Vale failed. Fix: delete $(mise -C "$here/.." where vale) and $tmp/styles, " "Latin.yml"
 # A Vale that fails for no reason that the checks know gives all that it
 # printed, with the fix of an unknown cause. A function named vale takes
 # the place of the program.
 for fake in 'return 2' 'echo "{\"Code\": \"E1\"}" >&2; return 2' 'case "$*" in *line*) echo "[$file]:E100:the test broke" >&2 ;; esac; return 2'; do
   run_lib "$here/cases/english" 'file="$PWD/pass-english.md"; vale() { case "$1" in ls-config) command vale "$@"; return ;; esac; '"$fake"'; }' english "$here/cases/english/pass-english.md"
   case "$fake" in
-    'return 2') want "a Vale that says nothing" 0 "Vale didn't check the files of the job english: Vale failed. $fix_vale" ;;
+    'return 2') want "a Vale that says nothing" 0 "Vale didn't check $here/cases/english/pass-english.md: Vale failed. $fix_vale" ;;
     echo*) want "a Vale with JSON that has no Path" 0 "Vale failed. $fix_vale" '{"Code": "E1"}' ;;
     *) want "a Vale that fails on one file" 0 "Vale didn't check $here/cases/english/pass-english.md: the test broke. $fix_vale" ;;
   esac
@@ -303,6 +303,41 @@ if [ "$(id -u)" -ne 0 ]; then
   chmod 600 "$tmp/read/closed.md"
 fi
 
+# A link in the repository gets the check of the file that it points to,
+# under the path of the link, as a glob of the job can leave out that file.
+# A link out of the repository, and one to no file, fail.
+mkdir -p "$tmp/links/docs/en" "$tmp/links/docs/ja"
+cp "$here/cases/english/fail-english.md" "$tmp/links/docs/en/guide.md"
+cp "$here/cases/japanese/fail-japanese.md" "$tmp/links/docs/ja/guide.md"
+cp "$here/cases/english/pass-english.md" "$tmp/outside.md"
+ln -s docs/en/guide.md "$tmp/links/README.md"
+ln -s docs/ja/guide.md "$tmp/links/ja.md"
+ln -s "$tmp/outside.md" "$tmp/links/out.md"
+ln -s docs/none.md "$tmp/links/gone.md"
+run_in "$tmp/links" english README.md out.md gone.md
+want "links, in english" 1 "Vale on README.md:" "Google.Latin (error)" "The checks didn't check out.md: it's in $(cd -P "$tmp" && pwd)/outside.md, out of the repository. $fix_file english" "The checks didn't check gone.md: the checks couldn't read it: ENOENT"
+run_in "$tmp/links" japanese ja.md out.md
+want "links, in japanese" 1 "textlint on ja.md:" "no-mix-dearu-desumasu (error)" "The checks didn't check out.md: it's in"
+
+# The settings of a directory apply to each file in it and below, and a file
+# of another directory gets the nearest settings above it. Settings that
+# fail fail only the files that they apply to.
+mkdir -p "$tmp/nested/docs/deep" "$tmp/nested/bad"
+for dir in . docs/deep bad; do
+  cp "$here/cases/english/fail-english.md" "$tmp/nested/$dir/en.md"
+  cp "$here/cases/japanese/fail-japanese.md" "$tmp/nested/$dir/ja.md"
+done
+printf '[*]\nGoogle.Latin = suggestion\n' >"$tmp/nested/docs/.vale.ini"
+printf '{"rules": {"preset-ja-technical-writing": {"no-mix-dearu-desumasu": {"severity": "info"}}}}\n' >"$tmp/nested/docs/.textlintrc.json"
+printf '[*]\nBasedOnStyles = NoSuchStyle\n' >"$tmp/nested/bad/.vale.ini"
+printf '{"rules": \n' >"$tmp/nested/bad/.textlintrc.json"
+run_in "$tmp/nested" english en.md docs/deep/en.md bad/en.md
+want "nested settings, in english" 1 "Vale on en.md:" "Vale on docs/deep/en.md, with docs/.vale.ini:" "Google.Latin (suggestion)" "Vale didn't check $(cd -P "$tmp" && pwd)/nested/bad/en.md: Style 'NoSuchStyle'"
+section Vale en.md | grep -qF "Google.Latin (error)" || { echo "Failed: en.md in the root should get Google.Latin (error), but got:"; echo "$out"; failed=1; }
+run_in "$tmp/nested" japanese ja.md docs/deep/ja.md bad/ja.md
+want "nested settings, in japanese" 1 "textlint on docs/deep/ja.md, with docs/.textlintrc.json:" "no-mix-dearu-desumasu (info)" "textlint didn't check $(cd -P "$tmp" && pwd)/nested/bad/ja.md: textlint couldn't read"
+section textlint ja.md | grep -qF "no-mix-dearu-desumasu (error)" || { echo "Failed: ja.md in the root should get no-mix-dearu-desumasu (error), but got:"; echo "$out"; failed=1; }
+
 # A repository whose path holds the characters of a pattern, such as [ and
 # *, gets each path of its report from its root.
 mkdir "$tmp/[x]*"
@@ -336,7 +371,9 @@ want "a setup.sh that fails" 1 "A line of mise" "setup.sh: a command above faile
 # run.
 if ! command -v rst2html >/dev/null; then
   printf 'Title\n=====\n\nA sentence.\n' >"$tmp/case.rst"
-  run_in "$here/cases/english" english "$tmp/case.rst" fail-english.md
+  mkdir "$tmp/rst"
+  cp "$tmp/case.rst" "$here/cases/english/fail-english.md" "$tmp/rst/"
+  run_in "$tmp/rst" english case.rst fail-english.md
   want "a reStructuredText file" 1 "rst2html not found; it's needed to read reStructuredText. Fix: leave each file out of the job english" "Google.Latin (error)"
   run_lib "$here/cases/english" 'log="'"$tmp/vale.log"'"; vale() { echo "vale $*" >>"$log"; command vale "$@"; }' english "$here/cases/english/fail-english.md" "$here/cases/english/pass-english.md" "$tmp/case.rst"
   out="$(cat "$tmp/vale.log")"
@@ -349,8 +386,10 @@ fi
 # findings. The formats are those of the settings: a repository that
 # gives the plugin of Markdown more extensions gets those checked too.
 printf '# この設定は、ルートに置くものである。\n' >"$tmp/case.py"
-run_in "$here/cases/japanese" japanese "$tmp/case.py" fail-japanese.md
-want "a Python file" 1 "textlint didn't check $(cd -P "$tmp" && pwd)/case.py: textlint reads only the files that end in .txt, .text, .md, " "Fix: leave each file out of the job japanese" "no-mix-dearu-desumasu (error)"
+mkdir "$tmp/py"
+cp "$tmp/case.py" "$here/cases/japanese/fail-japanese.md" "$tmp/py/"
+run_in "$tmp/py" japanese case.py fail-japanese.md
+want "a Python file" 1 "textlint didn't check $(cd -P "$tmp" && pwd)/py/case.py: textlint reads only the files that end in .txt, .text, .md, " "Fix: leave each file out of the job japanese" "no-mix-dearu-desumasu (error)"
 mkdir "$tmp/mdx"
 printf '{"plugins": {"@textlint/markdown": {"extensions": [".mdx"]}}}\n' >"$tmp/mdx/.textlintrc.json"
 cp "$here/cases/japanese/fail-japanese.md" "$tmp/mdx/guide.mdx"

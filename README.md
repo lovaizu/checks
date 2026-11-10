@@ -17,7 +17,7 @@ Each language has a file and a job of its own, as which languages a repository h
   - [`textlint-rule-prh`](https://github.com/textlint-rule/textlint-rule-prh), when the repository names its dictionary
   - The filters [`textlint-filter-rule-allowlist`](https://github.com/textlint/textlint-filter-rule-allowlist) and [`textlint-filter-rule-comments`](https://github.com/textlint/textlint-filter-rule-comments)
 
-Each tool reads a file as it reads the file's format, and the checks change nothing in it. The checks read text in UTF-8 alone. A file in another encoding fails the check, and so does a file that they can't read. A file with a null byte, such as an image, holds no text, and the checks pass it. Vale reads Markdown and the [other formats that it knows](https://docs.vale.sh/formats), and reads the rest as plain text. A format that needs a program that isn't installed, such as `rst2html` for reStructuredText, fails the check. textlint reads the formats of its plugins, Markdown and plain text, with the extensions that the plugins name and those that your settings add. A file of another format fails the check. A file that your `.textlintignore` leaves out passes, whatever its format. Give a job only the files that its tool reads.
+Each tool chooses the format of a file by its extension, and the checks change nothing in the file. The checks read text in UTF-8 alone. A file in another encoding fails the check, and so does a file that they can't read. A file with a null byte, such as an image, holds no text, and the checks pass it. A link gets the check of the file that it points to, under the path of the link, and a link out of the repository fails the check. Vale reads Markdown and the [other formats that it knows](https://docs.vale.sh/formats), and reads a file of an extension that it doesn't know as plain text. In a format of code, Vale checks only the comments: it reads a `.pod` file as Perl, for example. To have Vale read an extension as another format, name it in the section `[formats]` of your `.vale.ini`, such as `pod = txt` for plain text. A format that needs a program that isn't installed, such as `rst2html` for reStructuredText, fails the check. textlint reads the formats of its plugins, Markdown and plain text, with the extensions that the plugins name and those that your settings add. A file of another format fails the check. A file that your `.textlintignore` leaves out passes, whatever its format. Give a job only the files that its tool reads.
 
 A finding at the level warning or error stops the commit. A finding at a lower level, suggestion in Vale and info in textlint, shows in the report and doesn't stop the commit. Each rule keeps the level that its tool gives it.
 
@@ -96,11 +96,11 @@ The first run installs the tools of `mise.toml` with the sha256 of `mise.lock`, 
 
 ## Change a setting
 
-Change a setting when the case of your repository needs it. The people of the repository decide it, not an agent that wants a finding to go away. Write only what you change: the checks lay your file over their defaults. Each tool finds your settings as it does itself, from the current directory up. lefthook runs the checks in the root of the repository, so your settings there apply to each file that the checks get, wherever the file is.
+Change a setting when the case of your repository needs it. The people of the repository decide it, not an agent that wants a finding to go away. Write only what you change: the checks lay your file over their defaults. The checks find the settings of each file from the directory of the file up, as each tool does from the directory where it runs. So a settings file applies to each file in its directory and below, and a file in a directory with no settings file of its own gets the settings file of its nearest parent directory that has one, such as the root of the repository. textlint reads a `.textlintignore` only in the root.
 
 ### English
 
-Write a `.vale.ini` of your own. Vale reads [`vale/.vale.ini`](vale/.vale.ini) as its defaults, and lays over them the `.vale.ini` that it finds first. For example, to make a rule stop the commit, and to allow the words of your own vocabulary:
+Write a `.vale.ini` of your own. Vale reads [`vale/.vale.ini`](vale/.vale.ini) as its defaults, and lays over them the nearest `.vale.ini`, `_vale.ini` or `vale.ini`. For example, to make a rule stop the commit, and to allow the words of your own vocabulary:
 
 ```ini
 StylesPath = styles
