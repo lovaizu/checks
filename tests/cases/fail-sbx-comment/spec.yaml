@@ -1,0 +1,5 @@
+# expect: Google.Latin
+# A kit, e.g. of the dotfiles.
+schemaVersion: "2"
+kind: mixin
+name: tools

@@ -1,0 +1,10 @@
+# expect: Google.Latin
+schemaVersion: "2"
+kind: sandbox
+name: tools
+sandbox:
+  image: docker/sandbox-templates:shell
+  entrypoint:
+    - sh
+    - -c
+    - echo "Use a tool, e.g. Vale." && exec bash

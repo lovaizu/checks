@@ -1,0 +1,6 @@
+# expect: Google.Latin
+schemaVersion: "2"
+kind: sandbox
+name: tools
+displayName: Tools, e.g. Vale
+extends: claude
