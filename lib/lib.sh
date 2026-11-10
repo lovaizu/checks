@@ -51,6 +51,8 @@ tool_reason() {
   local text
   text="$(jq -r '.Text? // empty' "$3" 2>/dev/null)"
   [ -n "$text" ] || text="$(printf '%s\n' "$(head -c 600 <<<"$2")" "$(head -c 600 "$3")" | sed '/^$/d')"
+  # A fix follows the reason, after a period.
+  text="${text%.}"
   echo "${text:-it exited $1 with no message}"
 }
 
@@ -61,42 +63,51 @@ vale_run() {
 
 # Runs Vale once on all the files given, with the .vale.ini of the
 # repository over the defaults. When the run fails, Vale runs again on each
-# file, so that the files that it can check keep their findings, and each
-# file that fails gets the reason. Vale reads a file in the format that its
-# extension names.
+# file that its report doesn't name, so that each file that fails gets the
+# reason. Vale reads a file in the format that its extension names.
 check_english() {
-  local source out status file all="" checked=()
+  local source out status file all checked=()
   out="$(vale_run ls-config 2>"$work/vale.err")"
   status=$?
   if [ "$status" -ne 0 ] || ! source="$(jq -r '.RootINI' <<<"$out" 2>/dev/null)"; then
-    notes+=("Vale didn't check the English: $(tool_reason "$status" "$out" "$work/vale.err")")
+    notes+=("Vale didn't check the English: $(tool_reason "$status" "$out" "$work/vale.err"). Fix: correct the settings of Vale of the repository, such as its .vale.ini.")
     return
   fi
   # With --no-exit, Vale exits 0 with its findings, and fails only when it
   # can't check a file. It then prints the findings of the files that it
-  # could check to stdout, and its error to stderr.
-  out="$(vale_run --no-exit --output=JSON "$@" 2>"$work/vale.err")"
+  # could check to stdout, and its error to stderr. Its report names only
+  # the files with findings, each by the path that it got.
+  all="$(vale_run --no-exit --output=JSON "$@" 2>"$work/vale.err")"
   status=$?
   if [ "$status" -eq 0 ]; then
-    all="$out"
     checked=("$@")
   else
+    # When Vale can't check even a line of Markdown, the settings fail, not
+    # the files.
+    if ! vale_run --no-exit --output=JSON --ext=.md <<<"A sentence." >/dev/null 2>&1; then
+      notes+=("Vale didn't check the English: $(tool_reason "$status" "$all" "$work/vale.err"). Fix: correct the settings of Vale of the repository, such as its .vale.ini.")
+      return
+    fi
     for file in "$@"; do
+      if jq -e --arg file "$file" 'has($file)' <<<"$all" >/dev/null 2>&1; then
+        checked+=("$file")
+        continue
+      fi
       out="$(vale_run --no-exit --output=JSON "$file" 2>"$work/vale.err")"
       status=$?
       if [ "$status" -eq 0 ]; then
         all+="$out"
         checked+=("$file")
       else
-        notes+=("Vale didn't check $file: $(tool_reason "$status" "$out" "$work/vale.err")")
+        notes+=("Vale didn't check $file: $(tool_reason "$status" "$out" "$work/vale.err"). Fix: leave the file out of the job english, with glob or exclude in lefthook.yml.")
       fi
     done
   fi
-  # Vale names only the files with findings, each by the path that it got.
   if ! out="$(jq -cs --arg source "$source" '(add // {}) as $vale | {source: $source,
     files: [$ARGS.positional[] | {file: ., findings: [($vale[.] // [])[] | {line: .Line, check: .Check, level: .Severity, message: .Message}]}],
-    notes: [$vale | keys[] | select(IN($ARGS.positional[]) | not) | "Vale reported \(.), which it wasn'"'"'t given by that path."]}' --args ${checked[@]+"${checked[@]}"} <<<"$all" 2>"$work/vale.err")"; then
-    notes+=("Vale didn't check the English: its report isn't JSON: $(head -c 300 <<<"$all")")
+    notes: [$vale | keys[] | select(IN($ARGS.positional[]) | not) | "Vale reported \(.), which it wasn'"'"'t given by that path."]}' \
+    --args ${checked[@]+"${checked[@]}"} <<<"$all" 2>"$work/vale.err")"; then
+    notes+=("Vale didn't check the English: its report isn't JSON: $(head -c 300 <<<"$all"). Fix: run the check again, and if it fails again, open an issue in lovaizu/checks with this message.")
     return
   fi
   add_report Vale "$out"
@@ -105,18 +116,16 @@ check_english() {
 # Runs textlint once on all the files given, by textlint/check.mjs, which
 # says how it checks each file.
 check_japanese() {
-  local out status reason
+  local out status report="$work/textlint.json"
   if [ ! -x "$textlint_dir/node_modules/.bin/textlint" ]; then
     notes+=("textlint isn't installed, so the check skipped the Japanese. Fix: run $root/setup.sh.")
     return
   fi
-  out="$(node "$root/textlint/check.mjs" "$textlint_dir/node_modules" "$PWD" "$work" "$@" 2>"$work/textlint.err")"
+  out="$(node "$root/textlint/check.mjs" "$textlint_dir/node_modules" "$PWD" "$work" "$@" 2>&1)"
   status=$?
-  if [ "$status" -ne 0 ] || ! jq -e '.files' <<<"$out" >/dev/null 2>&1; then
-    # check.mjs gives the reason as {error}. Without it, Node itself failed.
-    reason="$(jq -r '.error // empty' <<<"$out" 2>/dev/null)"
-    notes+=("textlint didn't check the Japanese: ${reason:-$(tool_reason "$status" "$out" "$work/textlint.err")}")
+  if ! jq -e '.files' "$report" >/dev/null 2>&1; then
+    notes+=("textlint didn't check the Japanese: $(jq -r '.error // empty' "$report" 2>/dev/null || tool_reason "$status" "$out" /dev/null)")
     return
   fi
-  add_report textlint "$out"
+  add_report textlint "$(cat "$report")"
 }

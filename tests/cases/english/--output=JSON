@@ -1,0 +1,8 @@
+vale --no-exit --output=JSON /home/agent/.herdr/worktrees/checks/textlint/tests/cases/english/fail-english.md /home/agent/.herdr/worktrees/checks/textlint/tests/cases/english/pass-english.md /tmp/tmp.bV55qqevXn/case.rst
+vale --no-exit --output=JSON /home/agent/.herdr/worktrees/checks/textlint/tests/cases/english/pass-english.md
+vale --no-exit --output=JSON /tmp/tmp.bV55qqevXn/case.rst
+vale --no-exit --output=JSON /home/agent/.herdr/worktrees/checks/textlint/tests/cases/english/fail-english.md /home/agent/.herdr/worktrees/checks/textlint/tests/cases/english/pass-english.md /tmp/tmp.G5XWV1B70T/case.rst
+vale --no-exit --output=JSON /home/agent/.herdr/worktrees/checks/textlint/tests/cases/english/pass-english.md
+vale --no-exit --output=JSON /tmp/tmp.G5XWV1B70T/case.rst
+vale --no-exit --output=JSON /home/agent/.herdr/worktrees/checks/textlint/tests/cases/english/fail-english.md /tmp/claude-1000/-home-agent--herdr-worktrees-checks-textlint/163facd3-160c-47c0-bb63-774cf595ba69/scratchpad/c.rst
+vale --no-exit --output=JSON /tmp/claude-1000/-home-agent--herdr-worktrees-checks-textlint/163facd3-160c-47c0-bb63-774cf595ba69/scratchpad/c.rst

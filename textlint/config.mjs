@@ -12,22 +12,33 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 
-// The modules of textlint, which settings() loads from its node_modules.
-let require, JSON5, yaml;
-
 function fail(message) {
   throw new Error(message);
 }
 
-// A JavaScript file runs to make its settings, so the checks can't merge it.
-function find(dir) {
+// Reads file $file by function $read, and fails with the reason and the fix
+// where the file isn't valid.
+function parse(file, read) {
+  try {
+    return read(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    fail(`textlint couldn't read ${file}: ${error.message.split("\n")[0]}. Fix: correct the syntax of the file.`);
+  }
+}
+
+// Finds the settings of the repository from directory $dir up, with the
+// function $require that loads the modules of textlint. A JavaScript file
+// runs to make its settings, so the checks can't merge it.
+function find(require, dir) {
+  const JSON5 = require("json5");
+  const yaml = require("js-yaml");
   for (const name of [".textlintrc.cjs", ".textlintrc.js", ".textlintrc.json", ".textlintrc.yaml", ".textlintrc.yml", ".textlintrc"]) {
     const file = path.join(dir, name);
     if (!fs.existsSync(file)) continue;
-    const text = fs.readFileSync(file, "utf8");
     if (name.endsWith("js")) fail(`${file} is JavaScript, which the checks can't merge into their defaults. Fix: write it as .textlintrc.json or .textlintrc.yml.`);
-    if (name.endsWith(".json")) return { file, config: JSON5.parse(text) };
-    if (name.endsWith(".yaml") || name.endsWith(".yml")) return { file, config: yaml.load(text) || {} };
+    if (name.endsWith(".json")) return { file, config: parse(file, JSON5.parse) };
+    if (name.endsWith(".yaml") || name.endsWith(".yml")) return { file, config: parse(file, yaml.load) || {} };
+    const text = fs.readFileSync(file, "utf8");
     // textlint reads .textlintrc as JSON, then YAML, then JavaScript.
     try {
       return { file, config: JSON5.parse(text) };
@@ -40,11 +51,11 @@ function find(dir) {
   }
   const pkg = path.join(dir, "package.json");
   if (fs.existsSync(pkg)) {
-    const json = JSON5.parse(fs.readFileSync(pkg, "utf8"));
+    const json = parse(pkg, JSON5.parse);
     if (json.textlint) return { file: pkg, config: json.textlint };
   }
   const parent = path.dirname(dir);
-  return parent === dir ? null : find(parent);
+  return parent === dir ? null : find(require, parent);
 }
 
 const isObject = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
@@ -64,15 +75,10 @@ function merge(base, over) {
 // textlint takes the name of a rule, a preset or a filter in short, such as
 // prh, or as its package, such as textlint-rule-prh. Each key gets the short
 // name, as textlint gives it, so that the two names of a rule merge.
-function normalize(config) {
-  const { normalizeTextlintRuleKey, normalizeTextlintFilterRuleKey, normalizeTextlintPluginKey } = require("@textlint/utils");
+function normalize(require, config) {
+  const { normalizeTextlintRuleKey, normalizeTextlintFilterRuleKey } = require("@textlint/utils");
   const keys = (entries, name) => (isObject(entries) ? Object.fromEntries(Object.entries(entries).map(([key, value]) => [name(key), value])) : entries);
-  return {
-    ...config,
-    rules: keys(config.rules, normalizeTextlintRuleKey),
-    filters: keys(config.filters, normalizeTextlintFilterRuleKey),
-    plugins: Array.isArray(config.plugins) ? config.plugins : keys(config.plugins, normalizeTextlintPluginKey),
-  };
+  return { ...config, rules: keys(config.rules, normalizeTextlintRuleKey), filters: keys(config.filters, normalizeTextlintFilterRuleKey) };
 }
 
 // textlint reads the paths in the options of a rule from the directory of
@@ -90,7 +96,7 @@ function resolvePaths(config, dir) {
 // A key has the short name, such as preset-ja-technical-writing, or
 // @textlint-ja/preset-ai-writing.
 const isPreset = (key) => /^(@[^/]+\/)?preset-/.test(key);
-const loadPreset = (key) => {
+const loadPreset = (require, key) => {
   const loaded = require(key.replace(/^(@[^/]+\/)?/, "$1textlint-rule-"));
   return loaded.default || loaded;
 };
@@ -104,23 +110,16 @@ const loadPreset = (key) => {
 // preset-ai-writing does, so the checks give the finding the level that
 // the settings name. source is the settings file of the repository, if any.
 export function settings(modules, start) {
-  require = createRequire(path.join(path.resolve(modules), "x.js"));
-  JSON5 = require("json5");
-  yaml = require("js-yaml");
+  const require = createRequire(path.join(path.resolve(modules), "x.js"));
   const { normalizeTextlintRulePresetKey } = require("@textlint/utils");
   // A preset that the defaults turn on with `true` gets its own settings of
   // each rule, so that the settings of the repository merge into those.
-  const defaults = normalize(JSON.parse(fs.readFileSync(new URL(".textlintrc.json", import.meta.url), "utf8")));
+  const defaults = normalize(require, JSON.parse(fs.readFileSync(new URL(".textlintrc.json", import.meta.url), "utf8")));
   for (const [key, value] of Object.entries(defaults.rules)) {
-    if (isPreset(key) && value === true) defaults.rules[key] = { ...(loadPreset(key).rulesConfig || {}) };
+    if (isPreset(key) && value === true) defaults.rules[key] = { ...(loadPreset(require, key).rulesConfig || {}) };
   }
-  let found;
-  try {
-    found = find(path.resolve(start));
-  } catch (error) {
-    fail(`textlint couldn't read its settings: ${error.message}`);
-  }
-  const config = found ? merge(defaults, resolvePaths(normalize(found.config), path.dirname(found.file))) : defaults;
+  const found = find(require, path.resolve(start));
+  const config = found ? merge(defaults, resolvePaths(normalize(require, found.config), path.dirname(found.file))) : defaults;
   const levelOf = (value) => (isObject(value) && typeof value.severity === "string" ? value.severity : undefined);
   const levels = {};
   for (const [key, value] of Object.entries(config.rules || {})) {
@@ -129,7 +128,7 @@ export function settings(modules, start) {
       if (levelOf(value)) levels[key] = levelOf(value);
       continue;
     }
-    const preset = loadPreset(key);
+    const preset = loadPreset(require, key);
     const id = normalizeTextlintRulePresetKey(key);
     for (const rule of Object.keys(preset.rules || {})) {
       const own = isObject(value) && value[rule] !== undefined ? value[rule] : (preset.rulesConfig || {})[rule];
