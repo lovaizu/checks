@@ -47,10 +47,23 @@ vale_config() {
   echo "$root/vale/.vale.ini"
 }
 
+# Succeeds when the file at path $1, whose text file $2 holds, is the spec
+# of a Docker Sandboxes kit. A kit names its spec spec.yaml, a name that
+# other formats use too, such as OpenAPI, so the spec is the one that
+# says its kind and the schema version 2.
+is_kit() {
+  case "$1" in */spec.yaml) ;; *) return 1 ;; esac
+  yq -e '.schemaVersion == "2" and (.kind == "sandbox" or .kind == "mixin")' "$2" &>/dev/null
+}
+
 # Prints the View by which Vale reads the data file at path $1, or nothing
 # for a file that isn't data. Issue #12 holds the table of what each View
-# reads.
+# reads. $2 is the file that holds the text, when it isn't at path $1.
 view_of() {
+  if is_kit "$1" "${2:-$1}"; then
+    echo Kit
+    return
+  fi
   case "$1" in
     */.github/workflows/*.yml | */.github/workflows/*.yaml) echo Workflow ;;
     */action.yml | */action.yaml) echo Action ;;
@@ -95,7 +108,7 @@ layer() {
 run_vale() {
   local config="$1" file="$2" path="$3" home
   shift 3
-  home="$(layer "${view-$(view_of "$path")}" "${path##*.}")"
+  home="$(layer "${view-$(view_of "$path" "$file")}" "${path##*.}")"
   if [ "$file" = "$path" ]; then
     (cd "$(dirname "$config")" && XDG_CONFIG_HOME="$home" vale --no-exit --output=JSON --config="$config" "$@" "$file" 2>&1)
   else
@@ -235,10 +248,28 @@ shell_prose() {
 # file $1 runs: the run of a step whose shell is bash or sh, as GitHub
 # runs it.
 run_prose() {
+  scripts_prose "$1" '.. | select(tag == "!!str") |
+    select((path | .[-1]) == "run" and (path | .[-3]) == "steps" and ((parent | .shell // "bash") | test("^(ba)?sh")))'
+}
+
+# Prints, as {line, text}, the prose of each command of the Docker
+# Sandboxes spec at YAML file $1 that runs in a shell. sbx runs the string
+# of setup.install by sh -c. It runs the list of setup.startup, and the
+# list of the entrypoint, with no shell, so a list holds a script only
+# when it runs sh or bash with -c. Its other items are names and flags.
+kit_prose() {
+  scripts_prose "$1" '(.setup.install[]?.command | select(tag == "!!str")),
+    ((.setup.startup[]?.command, .sandbox.entrypoint) | select(tag == "!!seq") |
+      select((.[0] // "" | test("^(.*/)?(ba)?sh$")) and (.[1] // "" | test("^-[a-z]*c[a-z]*$"))) |
+      .[2] | select(tag == "!!str"))'
+}
+
+# Prints, as {line, text}, the prose of each shell script in YAML file $1:
+# each string that yq expression $2 picks.
+scripts_prose() {
   local file="$1" steps step script start all='[]'
-  steps="$(yq -p yaml -o json -I0 '[.. | select(tag == "!!str") |
-    select((path | .[-1]) == "run" and (path | .[-3]) == "steps" and ((parent | .shell // "bash") | test("^(ba)?sh"))) |
-    {"line": line, "text": ., "block": (style == "literal" or style == "folded")}]' "$file" 2>/dev/null)" || return 1
+  steps="$(yq -p yaml -o json -I0 "[($2) |
+    {\"line\": line, \"text\": ., \"block\": (style == \"literal\" or style == \"folded\")}]" "$file" 2>/dev/null)" || return 1
   while IFS= read -r step; do
     script="$(new_file .sh)"
     jq -r .text <<<"$step" >"$script"
@@ -360,7 +391,7 @@ check_prose() {
       fi
       # The comments of a data file, and the run of each step, go into the
       # Markdown file below.
-      if [ -n "$(view_of "$path")" ]; then
+      if [ -n "$(view_of "$path" "$text")" ]; then
         prose="$(jq -sc 'add' <<<"$prose $(view=Comments vale_text "$text" "$path" || echo '[]')")"
       fi
       case "$path" in
@@ -368,6 +399,9 @@ check_prose() {
           prose="$(jq -sc 'add' <<<"$prose $(run_prose "$text" || echo '[]')")"
           ;;
       esac
+      if is_kit "$path" "$text"; then
+        prose="$(jq -sc 'add' <<<"$prose $(kit_prose "$text" || echo '[]')")"
+      fi
       ;;
     html)
       # Vale reads the text of HTML with the settings of the checks, as the

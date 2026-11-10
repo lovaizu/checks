@@ -19,6 +19,7 @@ In each file, it reads only the text that the file's format holds as prose for a
 | JSON, YAML and `.toml` files | Each string value, and the comments. |
 | JSON Schema, named `*.schema.json` | `title`, `description` and `$comment`. |
 | A GitHub workflow or action | The comments, the names, and the descriptions of the action and its inputs and outputs. The `run` of a step reads as a shell script, unless the step names another shell. |
+| A Docker Sandboxes spec: a `spec.yaml` that says `schemaVersion: "2"` and a `kind` of `sandbox` or `mixin` | The comments, `displayName`, each `description`, and the agent instructions. The `command` of `setup.install` reads as a shell script, and so does the `command` of `setup.startup` or the `entrypoint` when it runs `sh -c` or `bash -c`. |
 | The settings of Claude Code and other tools: `plugin.json`, `marketplace.json`, `hooks.json`, `settings.json`, `package.json`, `pyproject.toml`, `mise.toml`, `lefthook.yml` | The comments and each `description`. |
 | `.ini`, `.cfg` and `.coveragerc` files | The comments and the values. |
 | `.vale.ini`, `.gitignore` and `requirements.txt` | The comments. |
