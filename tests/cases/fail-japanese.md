@@ -1,3 +1,3 @@
-<!-- expect: forbidden_phrase -->
+<!-- expect: ja-technical-writing/no-mix-dearu-desumasu -->
 
-この機能は大きなメリットがあると言えるでしょう。
+この設定は、すべてのファイルに効きます。この設定は、ルートに置くものである。

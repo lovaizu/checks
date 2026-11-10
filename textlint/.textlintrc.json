@@ -1,0 +1,17 @@
+{
+  "filters": {
+    "allowlist": true,
+    "comments": true
+  },
+  "rules": {
+    "preset-ja-technical-writing": true,
+    "@textlint-ja/preset-ai-writing": true,
+    "ja-hiragana-keishikimeishi": true,
+    "ja-hiragana-hojodoushi": true,
+    "ja-hiragana-fukushi": true,
+    "prh": false,
+    "ja-space-between-half-and-full-width": {
+      "space": "never"
+    }
+  }
+}

@@ -1,0 +1,132 @@
+// Writes the textlint settings that the checks use: the defaults of
+// .textlintrc.json, with the settings of the repository laid over them.
+// textlint reads only one settings file, so the checks give it this one.
+//
+// Usage: node config.mjs <node_modules> <directory> <output> <levels>
+//
+// It finds the settings of the repository as textlint itself does, from
+// <directory> up to the root: in each directory, .textlintrc.cjs,
+// .textlintrc.js, .textlintrc.json, .textlintrc.yaml, .textlintrc.yml and
+// .textlintrc, then the field textlint of package.json. It prints the path
+// of the file that it found, if any.
+//
+// A repository writes only what it changes, so a value of the repository
+// changes only its own part of the defaults:
+//
+// - An object adds its keys to those of the defaults, each merged the same way.
+// - `true` turns on a rule, and keeps the options of the defaults.
+// - An array adds its items to those of the defaults.
+// - Any other value, such as `false`, takes the place of the default.
+import { createRequire } from "node:module";
+import fs from "node:fs";
+import path from "node:path";
+
+const [modules, start, output, levelsOutput] = process.argv.slice(2);
+const require = createRequire(path.join(path.resolve(modules), "x.js"));
+const JSON5 = require("json5");
+const yaml = require("js-yaml");
+
+function fail(message) {
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+}
+
+// A JavaScript file runs to make its settings, so the checks can't merge it.
+function find(dir) {
+  for (const name of [".textlintrc.cjs", ".textlintrc.js", ".textlintrc.json", ".textlintrc.yaml", ".textlintrc.yml", ".textlintrc"]) {
+    const file = path.join(dir, name);
+    if (!fs.existsSync(file)) continue;
+    const text = fs.readFileSync(file, "utf8");
+    if (name.endsWith("js")) fail(`${file} is JavaScript, which the checks can't merge into their defaults. Fix: write it as .textlintrc.json or .textlintrc.yml.`);
+    if (name.endsWith(".json")) return { file, config: JSON5.parse(text) };
+    if (name.endsWith(".yaml") || name.endsWith(".yml")) return { file, config: yaml.load(text) || {} };
+    // textlint reads .textlintrc as JSON, then YAML, then JavaScript.
+    try {
+      return { file, config: JSON5.parse(text) };
+    } catch {}
+    try {
+      const config = yaml.load(text);
+      if (config === undefined || (typeof config === "object" && !Array.isArray(config))) return { file, config: config || {} };
+    } catch {}
+    fail(`${file} is neither JSON nor YAML, so textlint would read it as JavaScript, which the checks can't merge into their defaults. Fix: write it as JSON or YAML.`);
+  }
+  const pkg = path.join(dir, "package.json");
+  if (fs.existsSync(pkg)) {
+    const json = JSON5.parse(fs.readFileSync(pkg, "utf8"));
+    if (json.textlint) return { file: pkg, config: json.textlint };
+  }
+  const parent = path.dirname(dir);
+  return parent === dir ? null : find(parent);
+}
+
+const isObject = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+
+function merge(base, over) {
+  if (over === undefined) return base;
+  if (isObject(base) && isObject(over)) {
+    const out = { ...base };
+    for (const [key, value] of Object.entries(over)) out[key] = merge(base[key], value);
+    return out;
+  }
+  if (isObject(base) && over === true) return base;
+  if (Array.isArray(base) && Array.isArray(over)) return [...base, ...over.filter((x) => !base.includes(x))];
+  return over;
+}
+
+// textlint reads the paths in the options of a rule from the directory of
+// its settings file. The merged file lives elsewhere, so each path that
+// the repository names becomes absolute.
+function resolvePaths(config, dir) {
+  const fix = (paths) => (Array.isArray(paths) ? paths.map((p) => (p.startsWith("~") || path.isAbsolute(p) ? p : path.resolve(dir, p))) : paths);
+  const prh = config.rules?.prh;
+  if (isObject(prh) && prh.rulePaths) prh.rulePaths = fix(prh.rulePaths);
+  const allow = config.filters?.allowlist;
+  if (isObject(allow) && allow.allowlistConfigPaths) allow.allowlistConfigPaths = fix(allow.allowlistConfigPaths);
+  return config;
+}
+
+const isPreset = (key) => /(^|\/)(textlint-rule-)?preset-/.test(key);
+const loadPreset = (key) => {
+  const [scope, name] = key.startsWith("@") ? key.split("/") : [null, key];
+  const full = name.startsWith("textlint-rule-") ? name : `textlint-rule-${name}`;
+  const loaded = require(scope ? `${scope}/${full}` : full);
+  return loaded.default || loaded;
+};
+
+// A preset that the defaults turn on with `true` gets its own settings of
+// each rule, so that the settings of the repository merge into those.
+const defaults = JSON.parse(fs.readFileSync(new URL(".textlintrc.json", import.meta.url), "utf8"));
+for (const [key, value] of Object.entries(defaults.rules)) {
+  if (isPreset(key) && value === true) defaults.rules[key] = { ...(loadPreset(key).rulesConfig || {}) };
+}
+let found;
+try {
+  found = find(path.resolve(start));
+} catch (error) {
+  fail(`textlint couldn't read its settings: ${error.message}`);
+}
+const config = found ? merge(defaults, resolvePaths(found.config, path.dirname(found.file))) : defaults;
+fs.writeFileSync(output, JSON.stringify(config, null, 2));
+
+// The level that the settings give each rule, by the ID that textlint
+// reports, such as ja-technical-writing/sentence-length. textlint drops
+// this level from a finding that a rule reports as a plain object, not as
+// a RuleError, as ai-tech-writing-guideline of preset-ai-writing does, so
+// the checks give the finding the level that the settings name.
+const levelOf = (value) => (isObject(value) && typeof value.severity === "string" ? value.severity : undefined);
+const levels = {};
+for (const [key, value] of Object.entries(config.rules || {})) {
+  if (value === false) continue;
+  if (!isPreset(key)) {
+    if (levelOf(value)) levels[key.replace(/^textlint-rule-/, "")] = levelOf(value);
+    continue;
+  }
+  const preset = loadPreset(key);
+  const id = key.replace(/(^|\/)(textlint-rule-)?preset-/, "$1");
+  for (const rule of Object.keys(preset.rules || {})) {
+    const own = isObject(value) && value[rule] !== undefined ? value[rule] : (preset.rulesConfig || {})[rule];
+    if (levelOf(own)) levels[`${id}/${rule}`] = levelOf(own);
+  }
+}
+fs.writeFileSync(levelsOutput, JSON.stringify(levels));
+if (found) process.stdout.write(found.file);

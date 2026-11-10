@@ -1,6 +1,0 @@
-# The annotations that JSON Schema holds for a human reader. The values of
-# the other keywords, such as type, pattern and enum, aren't prose.
-engine: dasel
-scopes:
-  - expr: search($key == "title" || $key == "description" || $key == "$comment")
-    type: md

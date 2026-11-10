@@ -1,26 +1,12 @@
 # Where setup.sh puts what the checks run, for setup.sh and lib.sh. $root is
 # the root of this repository.
-
-# The skill natural-japanese by coji, under the Massachusetts Institute of
-# Technology (MIT) License, at a commit that Claude Code read in full before
-# this file named it. Read a new commit in full before you name it here, as
-# lovaizu/dotfiles#57 asks.
-natural_japanese_sha=840bd400cbcb64c8b64d492a144da54fc05776c5
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/lovaizu-checks"
-natural_japanese="$cache/natural-japanese-$natural_japanese_sha"
-if command -v sha256sum >/dev/null; then
-  requirements_sum="$(sha256sum "$root/requirements.txt")"
-else
-  # macOS has no sha256sum.
-  requirements_sum="$(shasum -a 256 "$root/requirements.txt")"
-fi
-# A change to requirements.txt makes a new virtual environment.
-venv="$cache/venv-${requirements_sum:0:16}"
 # textlint and its rules, and a new directory for each change of the
 # lockfile, which pins each package with its integrity.
 if command -v sha256sum >/dev/null; then
   textlint_sum="$(sha256sum "$root/textlint/package-lock.json")"
 else
+  # macOS has no sha256sum.
   textlint_sum="$(shasum -a 256 "$root/textlint/package-lock.json")"
 fi
 textlint_dir="$cache/textlint-${textlint_sum:0:16}"

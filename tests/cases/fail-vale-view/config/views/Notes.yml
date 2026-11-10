@@ -1,5 +1,0 @@
-# expect: Google.Latin
-# The notes, e.g. of a form.
-engine: dasel
-scopes:
-  - expr: notes?

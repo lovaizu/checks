@@ -1,2 +1,0 @@
-# The packages of lint.py.
-pyyaml==6.0.2; python_version >= "3.10" (e.g.)

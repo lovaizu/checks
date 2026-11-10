@@ -1,12 +1,12 @@
-# The checks of this repository: the same ones that it shares. The cases of
-# tests/cases have findings on purpose, and the license and the lockfiles
-# hold no prose of this repository, so the check leaves them out.
+# The checks of this repository: the same ones that it shares, on its
+# Markdown, as Vale reads the other files here as plain text, code and all.
+# The cases of tests/cases have findings on purpose.
 extends:
   - hooks.yml
 
 pre-commit:
-  exclude:
-    - "tests/cases/**"
-    - LICENSE
-    - mise.lock
-    - textlint/package-lock.json
+  jobs:
+    - name: prose
+      glob: "*.md"
+      exclude:
+        - "tests/cases/**"

@@ -1,3 +1,0 @@
-# The packages that lint.py of natural-japanese names in its script header.
-sudachipy>=0.6.8
-sudachidict-core>=20240409

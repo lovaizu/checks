@@ -1,3 +1,3 @@
-# expect: forbidden_phrase
-# この値は非常に重要です。
+# expect: Google.Latin
+# Reads the file, e.g. the notes.
 x = 1
