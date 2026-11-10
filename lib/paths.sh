@@ -16,6 +16,14 @@ else
 fi
 # A change to requirements.txt makes a new virtual environment.
 venv="$cache/venv-${requirements_sum:0:16}"
+# textlint and its rules, and a new directory for each change of the
+# lockfile, which pins each package with its integrity.
+if command -v sha256sum >/dev/null; then
+  textlint_sum="$(sha256sum "$root/textlint/package-lock.json")"
+else
+  textlint_sum="$(shasum -a 256 "$root/textlint/package-lock.json")"
+fi
+textlint_dir="$cache/textlint-${textlint_sum:0:16}"
 
 # mise installs only what mise.lock pins, with the sha256 that it keeps, and
 # reads mise.toml here without asking whether to trust it.

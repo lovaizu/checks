@@ -1,6 +1,6 @@
 # The checks of this repository: the same ones that it shares. The cases of
-# tests/cases have findings on purpose, and the license and mise.lock hold
-# no prose of this repository, so the check leaves them out.
+# tests/cases have findings on purpose, and the license and the lockfiles
+# hold no prose of this repository, so the check leaves them out.
 extends:
   - hooks.yml
 
@@ -9,3 +9,4 @@ pre-commit:
     - "tests/cases/**"
     - LICENSE
     - mise.lock
+    - textlint/package-lock.json
