@@ -17,7 +17,7 @@ Each language has a file and a job of its own, as which languages a repository h
   - [`textlint-rule-prh`](https://github.com/textlint-rule/textlint-rule-prh), when the repository names its dictionary
   - The filters [`textlint-filter-rule-allowlist`](https://github.com/textlint/textlint-filter-rule-allowlist) and [`textlint-filter-rule-comments`](https://github.com/textlint/textlint-filter-rule-comments)
 
-Each tool reads a file as it reads the file's format, and the checks change nothing in it. Vale reads Markdown and the [other formats that it knows](https://docs.vale.sh/formats), and reads the rest as plain text. A format that needs a program that isn't installed, such as `rst2html` for reStructuredText, fails the check. textlint reads Markdown and plain text.
+Each tool reads a file as it reads the file's format, and the checks change nothing in it. Vale reads Markdown and the [other formats that it knows](https://docs.vale.sh/formats), and reads the rest as plain text. A format that needs a program that isn't installed, such as `rst2html` for reStructuredText, fails the check. textlint reads Markdown and plain text, and a file of another format fails the check. Give a job only the files of a format that its tool reads.
 
 A finding at the level warning or error stops the commit. A finding at a lower level, suggestion in Vale and info in textlint, shows in the report and doesn't stop the commit. Each rule keeps the level that its tool gives it.
 

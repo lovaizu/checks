@@ -75,5 +75,16 @@ if ! command -v rst2html >/dev/null; then
   fi
 fi
 
+# A file of a format that textlint doesn't read fails, with the formats
+# that it reads and the fix. A Markdown file of the same run keeps its
+# findings.
+printf '# この設定は、ルートに置くものである。\n' >"$node_options/case.py"
+out="$(cd "$here/cases/japanese" && "$here/../prose.sh" japanese "$node_options/case.py" fail-japanese.md 2>&1)"
+status=$?
+if [ "$status" -ne 1 ] || ! grep -qF "textlint didn't check $node_options/case.py, as it reads only Markdown (.md" <<<"$out" ||
+  ! grep -qF "Fix: leave the file out of the job japanese" <<<"$out" || ! grep -qF "no-mix-dearu-desumasu (error)" <<<"$out"; then
+  echo "Failed: a Python file should fail in the Japanese check, with the formats of textlint, but the check exited $status with:"; echo "$out"; failed=1
+fi
+
 [ "$failed" -eq 0 ] && echo "All cases passed."
 exit "$failed"

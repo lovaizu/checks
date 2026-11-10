@@ -2,7 +2,7 @@
 // .textlintrc.json, with the settings of the repository laid over them.
 // textlint reads only one settings file, so the checks give it this one.
 //
-// Usage: node config.mjs <node_modules> <directory> <output> <levels>
+// Usage: node config.mjs <node_modules> <directory> <output> <levels> <formats>
 //
 // It finds the settings of the repository as textlint itself does, from
 // <directory> up to the root: in each directory, .textlintrc.cjs,
@@ -14,7 +14,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 
-const [modules, start, output, levelsOutput] = process.argv.slice(2);
+const [modules, start, output, levelsOutput, formatsOutput] = process.argv.slice(2);
 const require = createRequire(path.join(path.resolve(modules), "x.js"));
 const JSON5 = require("json5");
 const yaml = require("js-yaml");
@@ -131,4 +131,15 @@ for (const [key, value] of Object.entries(config.rules || {})) {
   }
 }
 fs.writeFileSync(levelsOutput, JSON.stringify(levels));
+
+// The formats that textlint reads, by the plugins that it has, for the
+// reason of a file that it doesn't read.
+const formats = [
+  ["Markdown", "@textlint/textlint-plugin-markdown"],
+  ["plain text", "@textlint/textlint-plugin-text"],
+].map(([name, plugin]) => {
+  const loaded = require(plugin);
+  return `${name} (${new (loaded.default || loaded).Processor({}).availableExtensions().join(", ")})`;
+});
+fs.writeFileSync(formatsOutput, formats.join(" and "));
 if (found) process.stdout.write(found.file);

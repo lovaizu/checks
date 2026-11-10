@@ -89,18 +89,21 @@ vale_reason() {
 # repository laid over them.
 textlint_config="$work/textlintrc.json"
 textlint_levels="$work/textlint-levels.json"
+textlint_formats="$work/textlint-formats.txt"
 textlint_source=""
 
 # Runs textlint once on all the files given, as its settings stay the same
 # for the run, and adds the findings of each file under a heading of its
-# own. textlint reads Markdown and plain text, and no other format.
+# own. textlint reads Markdown and plain text. It leaves a file of another
+# format out of its report, and the check fails on that file, as it does
+# in Vale.
 check_japanese() {
   local out found file status
   if [ ! -x "$textlint_dir/node_modules/.bin/textlint" ]; then
     notes+=("textlint isn't installed, so the check skipped the Japanese. Fix: run $root/setup.sh.")
     return
   fi
-  if ! textlint_source="$(node "$root/textlint/config.mjs" "$textlint_dir/node_modules" "$PWD" "$textlint_config" "$textlint_levels" 2>"$work/textlint.err")"; then
+  if ! textlint_source="$(node "$root/textlint/config.mjs" "$textlint_dir/node_modules" "$PWD" "$textlint_config" "$textlint_levels" "$textlint_formats" 2>"$work/textlint.err")"; then
     notes+=("textlint didn't check the Japanese: $(head -c 300 "$work/textlint.err")")
     return
   fi
@@ -125,6 +128,10 @@ check_japanese() {
     notes+=("textlint reported $file, which it wasn't given by that path, so its findings were lost.")
   done < <(jq -r --args 'keys - $ARGS.positional | .[]' "$@" <<<"$found")
   for file in "$@"; do
+    if [ "$(jq --arg file "$file" 'has($file)' <<<"$found")" != true ]; then
+      notes+=("textlint didn't check $file, as it reads only $(cat "$textlint_formats"). Fix: leave the file out of the job japanese, with glob or exclude in lefthook.yml.")
+      continue
+    fi
     add_findings "textlint on $file${textlint_source:+, with $textlint_source}:" "$(jq -c --arg file "$file" '.[$file] // []' <<<"$found")"
   done
 }
