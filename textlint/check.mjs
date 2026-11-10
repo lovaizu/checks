@@ -35,8 +35,8 @@ async function ignoredFiles() {
 }
 
 // The linter of each settings file, by the directory of a file that it
-// applies to: config.mjs finds the settings from that directory up, as
-// textlint does from where it runs. A failure to load the settings is a
+// applies to: config.mjs finds the settings from that directory up to the
+// root of the repository, $start. A failure to load the settings is a
 // note for each file that they apply to.
 const byDir = new Map();
 const bySource = new Map();
@@ -44,7 +44,7 @@ function linterIn(dir) {
   if (!byDir.has(dir)) {
     let group;
     try {
-      const { config, source } = settings(modules, dir);
+      const { config, source } = settings(modules, dir, start);
       if (!bySource.has(source)) bySource.set(source, load(config, source, bySource.size).catch((error) => ({ note: noteOf(error) })));
       group = bySource.get(source);
     } catch (error) {

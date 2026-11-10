@@ -34,7 +34,10 @@ add_report "The checks" "$language" "$(jq -n --argjson status "$status" --arg st
   if $status == 0 then $stdout | fromjson
   else {files: [], notes: [{kind: "unknown", reason: "Node exited \($status)", detail: {stdout: $stdout, stderr: $stderr}}]} end')"
 files=()
-[ "$status" -ne 0 ] || mapfile -d '' -t files < <(jq -j '.texts[] + "\u0000"' <<<"$out")
+if [ "$status" -eq 0 ]; then
+  mapfile -d '' -t files < <(jq -j '.texts[] + "\u0000"' <<<"$out")
+  names="$(jq -c .names <<<"$out")"
+fi
 [ "${#files[@]}" -eq 0 ] || "$check" "${files[@]}"
 
 if [ "${#notes[@]}" -gt 0 ]; then

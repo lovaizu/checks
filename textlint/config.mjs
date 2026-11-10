@@ -3,7 +3,8 @@
 // textlint reads only one settings file, so the checks give it this one.
 //
 // It finds the settings of the repository as textlint itself does, from a
-// directory up to the root: in each directory, .textlintrc.cjs,
+// directory up, but only up to the root of the repository, as a settings
+// file above it is of another repository: in each directory, .textlintrc.cjs,
 // .textlintrc.js, .textlintrc.json, .textlintrc.yaml, .textlintrc.yml and
 // .textlintrc, then the field textlint of package.json. "Change a setting"
 // in README.md says how the settings of the repository lie over the
@@ -29,10 +30,11 @@ function parse(file, read) {
   }
 }
 
-// Finds the settings of the repository from directory $dir up, with the
-// function $require that loads the modules of textlint. A JavaScript file
+// Finds the settings of the repository from directory $dir up to the root
+// of the repository, $root, with the function $require that loads the
+// modules of textlint. A JavaScript file
 // runs to make its settings, so the checks can't merge it.
-function find(require, dir) {
+function find(require, dir, root) {
   const JSON5 = require("json5");
   const yaml = require("js-yaml");
   for (const name of [".textlintrc.cjs", ".textlintrc.js", ".textlintrc.json", ".textlintrc.yaml", ".textlintrc.yml", ".textlintrc"]) {
@@ -58,7 +60,7 @@ function find(require, dir) {
     if (json.textlint) return { file: pkg, config: json.textlint };
   }
   const parent = path.dirname(dir);
-  return parent === dir ? null : find(require, parent);
+  return dir === root || parent === dir || !dir.startsWith(root + path.sep) ? null : find(require, parent, root);
 }
 
 const isObject = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
@@ -107,10 +109,11 @@ const loadPreset = (require, key) => {
   return loaded.default || loaded;
 };
 
-// Returns the settings for the node_modules of textlint, $modules, and
-// the directory $start where the search begins: {config, source}. source is
+// Returns the settings for the node_modules of textlint, $modules, the
+// directory $start where the search begins, and the root of the repository,
+// $root, where it ends: {config, source}. source is
 // the settings file of the repository, if any.
-export function settings(modules, start) {
+export function settings(modules, start, root) {
   const require = createRequire(path.join(path.resolve(modules), "x.js"));
   // A preset that the defaults turn on with `true` gets its own settings of
   // each rule, so that the settings of the repository merge into those.
@@ -118,7 +121,7 @@ export function settings(modules, start) {
   for (const [key, value] of Object.entries(defaults.rules)) {
     if (isPreset(key) && value === true) defaults.rules[key] = { ...(loadPreset(require, key).rulesConfig || {}) };
   }
-  const found = find(require, path.resolve(start));
+  const found = find(require, path.resolve(start), path.resolve(root));
   const config = found ? merge(defaults, resolvePaths(normalize(require, found.config), path.dirname(found.file))) : defaults;
   return { config, source: found ? found.file : "" };
 }

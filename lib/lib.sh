@@ -15,6 +15,10 @@ export VALE_STYLES_PATH
 fails=""
 shows=""
 notes=()
+# The paths in the repository of each file that the tools check, by its
+# path with no link, as lib/files.mjs gives them: a link shows under its own
+# path.
+names='{}'
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -27,6 +31,8 @@ mkdir -p "$work/vale-home/vale"
   echo "StylesPath = $root/vale/styles"
   grep -v '^StylesPath' "$root/vale/.vale.ini"
 } >"$work/vale-home/vale/.vale.ini"
+# The settings that Vale reads where the repository has none of its own.
+: >"$work/vale-empty.ini"
 # The fix of each kind of failure, the one place that names them. The
 # checks know the cause only where it's a file of the repository: a staged
 # file that the checks can't read, or of a format that the tool doesn't
@@ -58,8 +64,11 @@ fix_unknown() {
 # the settings file of the repository that applies to the file, if any. A
 # note with no file is about the whole run. The reason keeps its first
 # line, and the detail, such as what the tool printed, comes in full. Notes
-# with the same kind and reason become one.
+# with the same kind and reason become one. Each file goes by its names in
+# $names.
 report_jq='
+  def named: . as $entry | ($names[$entry.file // ""] // [$entry.file]) | map($entry + {file: .})[];
+  .files |= map(named) | .notes |= map(named) |
   def line: tostring | split("\n") | map(select(test("\\S"))) | (.[0] // "") | sub("[.\\s]+$"; "");
   def detail: (. // {}) | to_entries | map(select((.value // "") | test("\\S")))
     | map("\n  \(.key):\n    \(.value | sub("\\s+$"; "") | gsub("\n"; "\n    "))") | join("");
@@ -80,7 +89,7 @@ report_jq='
 add_report() {
   local shell unknown=""
   [[ "$3" != *'"unknown"'* ]] || unknown="$(fix_unknown "$1")"
-  if ! shell="$(jq -r --arg tool "$1" --arg job "$2" --arg file "$fix_file" --arg format "$fix_format" --arg settings "$fix_settings" \
+  if ! shell="$(jq -r --argjson names "$names" --arg tool "$1" --arg job "$2" --arg file "$fix_file" --arg format "$fix_format" --arg settings "$fix_settings" \
     --arg unknown "$unknown" "$report_jq" <<<"$3" 2>"$work/jq.err")" || [ -z "$shell" ]; then
     notes+=("$1 didn't check the files of the job $2: jq couldn't read its report$(sed '1s/^/: /' "$work/jq.err"). Fix: $(fix_unknown jq)."$'\n'"  report:"$'\n'"$3")
     return
@@ -88,11 +97,13 @@ add_report() {
   eval "$shell"
 }
 
-# Runs Vale in directory $vale_dir, where it starts to look for the
-# settings of the repository, with the defaults of the checks as its
-# user-level settings.
+# Runs Vale with settings file $vale_config in its directory, where Vale
+# reads a relative path of the settings from, with the defaults of the
+# checks as its user-level settings. --config keeps out the settings of
+# VALE_CONFIG_PATH and of the home directory, which Vale would read in
+# place of those of the repository.
 vale_run() {
-  (cd "$vale_dir" && XDG_CONFIG_HOME="$work/vale-home" vale "$@")
+  (cd "${vale_config%/*}" && XDG_CONFIG_HOME="$work/vale-home" vale --config="$vale_config" "$@")
 }
 
 # The jq that turns an error of Vale, in its JSON, into a note. Vale names
@@ -106,26 +117,34 @@ vale_error_jq='
       else {kind: "unknown", reason: "Vale failed", detail: {stdout: $stdout, stderr: $stderr}} end;'
 
 # Runs Vale on all the files given, once for each settings file of the
-# repository: Vale finds its settings from the directory where it runs up,
-# so it runs in the directory of each file's nearest vale.ini, .vale.ini or
-# _vale.ini, or in the current directory where no file has one.
+# repository. Vale would find its settings from the directory where it runs
+# up, past the root of the repository, the current directory. So the
+# checks find the nearest .vale.ini, _vale.ini or vale.ini of each file,
+# from its directory up to the root, and give it to Vale.
 check_english() {
-  local file dir vale_dir group runs
-  local -A dirs=()
+  local file dir name config vale_config group runs
+  local -A configs=()
   for file in "$@"; do
     dir="${file%/*}"
-    until [ -f "$dir/.vale.ini" ] || [ -f "$dir/_vale.ini" ] || [ -f "$dir/vale.ini" ] || [ -z "$dir" ]; do dir="${dir%/*}"; done
-    dirs["$file"]="${dir:-$PWD}"
+    config=""
+    while [ -z "$config" ]; do
+      for name in .vale.ini _vale.ini vale.ini; do
+        [ ! -f "$dir/$name" ] || { config="$dir/$name"; break; }
+      done
+      [[ "$dir" == "$PWD"/* ]] || break
+      dir="${dir%/*}"
+    done
+    configs["$file"]="${config:-$work/vale-empty.ini}"
   done
-  mapfile -d '' -t runs < <(printf '%s\0' "${dirs[@]}" | sort -zu)
-  for vale_dir in "${runs[@]}"; do
+  mapfile -d '' -t runs < <(printf '%s\0' "${configs[@]}" | sort -zu)
+  for vale_config in "${runs[@]}"; do
     group=()
-    for file in "$@"; do [ "${dirs[$file]}" != "$vale_dir" ] || group+=("$file"); done
+    for file in "$@"; do [ "${configs[$file]}" != "$vale_config" ] || group+=("$file"); done
     vale_check "${group[@]}"
   done
 }
 
-# Runs Vale once on all the files given, in $vale_dir, with the settings of
+# Runs Vale once on all the files given, with settings file $vale_config of
 # the repository over the defaults, and reads its findings as JSON, even
 # where the run fails. Vale goes on past a file that it can't read, but its
 # JSON error doesn't name the file. So when the run fails, Vale runs once
@@ -133,10 +152,11 @@ check_english() {
 # those errors name each file, such as "[notes.rst]:E100:rst2html not
 # found". Vale reads a file in the format that its extension names.
 vale_check() {
-  local out status source left=()
+  local out status source="$vale_config" left=()
+  [[ "$source" != "$work"/* ]] || source=""
   out="$(vale_run ls-config 2>"$work/vale.err")"
   status=$?
-  if [ "$status" -ne 0 ] || ! source="$(jq -er '.RootINI // ""' <<<"$out" 2>/dev/null)"; then
+  if [ "$status" -ne 0 ] || ! jq -e . <<<"$out" >/dev/null 2>&1; then
     add_report Vale english "$(jq -n --arg root "$root" --arg work "$work" --arg styles "$VALE_STYLES_PATH" --arg stdout "$out" --rawfile stderr "$work/vale.err" \
       "$vale_error_jq {files: [], notes: [vale_error(\$stdout; \$stderr) + {file: \$ARGS.positional[]}]}" --args "$@")"
     return

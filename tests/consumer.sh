@@ -75,8 +75,9 @@ YAML
 expect 1 "Vale on (LICENSE|mise.lock)" Google.Latin "Vale on README.md"
 
 # With japanese.yml alone and no glob, each file that textlint doesn't
-# read, such as lefthook.yml, fails with the formats that it reads. With
-# the glob of the README, only the Markdown goes to textlint.
+# read, such as lefthook.yml, fails with the formats that it reads, under
+# its path in the repository. With the glob of the README, only the
+# Markdown goes to textlint.
 cat >lefthook.yml <<YAML
 remotes:
   - git_url: $dir/checks
@@ -85,7 +86,7 @@ remotes:
       - japanese.yml
 YAML
 git add -A
-expect 1 "english ❯" "japanese ❯" "$dir/consumer/lefthook.yml" ": textlint reads only the files that end in " "Fix: leave each file out of the job japanese"
+expect 1 "english ❯" "japanese ❯" "textlint didn't check LICENSE, lefthook.yml, mise.lock: textlint reads only the files that end in " "Fix: leave each file out of the job japanese"
 cat >>lefthook.yml <<YAML
 pre-commit:
   jobs:
