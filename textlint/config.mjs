@@ -63,8 +63,10 @@ function find(require, dir) {
 
 const isObject = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
 
+// A key with no value, null in YAML, is one that the repository doesn't
+// write.
 function merge(base, over) {
-  if (over === undefined) return base;
+  if (over === undefined || over === null) return base;
   if (isObject(base) && isObject(over)) {
     const out = { ...base };
     for (const [key, value] of Object.entries(over)) out[key] = merge(base[key], value);

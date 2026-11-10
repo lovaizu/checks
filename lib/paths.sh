@@ -1,5 +1,7 @@
-# Where setup.sh puts what the checks run, for setup.sh and lib.sh. $root is
-# the root of this repository.
+# Where setup.sh puts what the checks run, for setup.sh and lib.sh, and
+# where to report a failure that they don't know the cause of. $root is the
+# root of this repository.
+issues=https://github.com/lovaizu/checks/issues
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/lovaizu-checks"
 # textlint and its rules, and a new directory for each change of the
 # lockfile, which pins each package with its integrity.

@@ -17,7 +17,7 @@ Each language has a file and a job of its own, as which languages a repository h
   - [`textlint-rule-prh`](https://github.com/textlint-rule/textlint-rule-prh), when the repository names its dictionary
   - The filters [`textlint-filter-rule-allowlist`](https://github.com/textlint/textlint-filter-rule-allowlist) and [`textlint-filter-rule-comments`](https://github.com/textlint/textlint-filter-rule-comments)
 
-Each tool reads a file as it reads the file's format, and the checks change nothing in it. Vale reads Markdown and the [other formats that it knows](https://docs.vale.sh/formats), and reads the rest as plain text. A format that needs a program that isn't installed, such as `rst2html` for reStructuredText, fails the check. textlint reads the formats of its plugins, Markdown and plain text, with the extensions that the plugins name and those that your settings add. A file of another format fails the check. A file that your `.textlintignore` leaves out passes, whatever its format. Give a job only the files that its tool reads.
+Each tool reads a file as it reads the file's format, and the checks change nothing in it. The checks read text in UTF-8 alone. A file in another encoding fails the check, and so does a file that they can't read. A file with a null byte, such as an image, holds no text, and the checks pass it. Vale reads Markdown and the [other formats that it knows](https://docs.vale.sh/formats), and reads the rest as plain text. A format that needs a program that isn't installed, such as `rst2html` for reStructuredText, fails the check. textlint reads the formats of its plugins, Markdown and plain text, with the extensions that the plugins name and those that your settings add. A file of another format fails the check. A file that your `.textlintignore` leaves out passes, whatever its format. Give a job only the files that its tool reads.
 
 A finding at the level warning or error stops the commit. A finding at a lower level, suggestion in Vale and info in textlint, shows in the report and doesn't stop the commit. Each rule keeps the level that its tool gives it.
 
@@ -84,6 +84,8 @@ pre-commit:
 
 With [`glob_matcher: doublestar`](https://lefthook.dev/configuration/glob_matcher/), `*.md` matches only the files in the root, and `docs/ja/**/*.md` matches the files in `docs/ja` and below. To turn off a language, leave its file out of `configs`. The settings of the files in `configs` take precedence over those of your `lefthook.yml`, so `skip: true` on a job doesn't turn it off.
 
+From v0.1.x, write `english.yml`, `japanese.yml`, or both in `configs` in place of `hooks.yml`. lefthook skips a file of `configs` that doesn't exist and says nothing, and `ci.sh` fails when no job of these checks remains.
+
 Run `lefthook install` once in each clone. In CI, add this step after `actions/checkout`, at the commit of the same tag:
 
 ```yaml
@@ -131,6 +133,7 @@ filters:
 Your file changes only the part that it names:
 
 - An object adds its keys to those of the defaults, and each value of a key that both have merges the same way.
+- A key with no value, such as `rules:` with nothing under it, changes nothing.
 - `true` turns on a rule and keeps the options of the defaults, including those of a preset.
 - An array adds its items to those of the defaults.
 - `false`, or any other value, takes the place of the default.
@@ -138,10 +141,6 @@ Your file changes only the part that it names:
 - The checks read a path in the options of `prh` and `allowlist` from the directory of your file.
 
 A `.textlintrc.js` or `.textlintrc.cjs` fails the check, as JavaScript can't merge into the defaults. To leave out a part of a file, use the comments of `textlint-filter-rule-comments`, such as `<!-- textlint-disable -->`.
-
-## Check other text
-
-A repository that checks text inside another format, such as the strings of a JSON file, adds a job of its own. The job prints the text as Markdown at the line numbers of the file, and gives that file to `prose.sh english` or `prose.sh japanese`. The settings of the repository apply to that file too, as [Change a setting](#change-a-setting) says.
 
 ## Change the checks
 

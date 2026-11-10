@@ -122,13 +122,25 @@ out="$(cd "$tmp/cdpath" && CDPATH="$tmp/elsewhere" "$here/../prose.sh" english d
 status=$?
 want "CDPATH" 1 "Vale on docs/guide.md:" "Google.Latin (error)"
 
-# The fixes that a failure names: one for a format that the tool doesn't
+# The fixes that a failure names: one for a file that the checks can't
 # read, one for settings of the repository, and one for a cause that the
-# checks don't know, which names the cache and setup.sh.
+# checks don't know in each tool, which names what setup.sh installed for
+# that tool, setup.sh and where to report it.
 root="$here/.."
 . "$here/../lib/paths.sh"
+fix_file="Fix: save each file as text in UTF-8 that the checks can read, or leave it out of the job"
 fix_settings="Fix: correct the settings of the repository that the reason names."
-fix_unknown="Fix: delete $textlint_dir, run $(cd "$here/.." && pwd)/setup.sh, and run the check again. If the check still fails, report it in an issue of lovaizu/checks with this message."
+fix_of() { echo "Fix: $(bash -c '. "$1/lib/lib.sh"; fix_unknown "$2"' _ "$here/.." "$1")."; }
+fix_vale="$(fix_of Vale)"
+fix_textlint="$(fix_of textlint)"
+fix_jq="$(fix_of jq)"
+fix_node="$(fix_of node)"
+setup="$(cd "$here/.." && pwd)/setup.sh"
+for fix in "$fix_vale|$(mise -C "$here/.." where vale) and $(mise -C "$here/.." where http:vale-google)" "$fix_textlint|$textlint_dir and $(mise -C "$here/.." where node)" \
+  "$fix_jq|$(mise -C "$here/.." where jq)" "$fix_node|$(mise -C "$here/.." where node)"; do
+  [ "${fix%%|*}" = "Fix: delete ${fix#*|}, run $setup, and run the check again. If the check still fails, report it with this message in an issue of https://github.com/lovaizu/checks/issues." ] ||
+    { echo "Failed: the fix of an unknown cause should delete ${fix#*|}, but it says: ${fix%%|*}"; failed=1; }
+done
 # Runs the functions of lib/lib.sh in bash in directory $1, with the script
 # $2 before check_$3 on the files after $3, and sets $out to each note and
 # the findings that fail.
@@ -142,7 +154,9 @@ run_lib() {
 # A report that jq can't read fails, with what it holds.
 out="$(bash -c '. "$1/lib/lib.sh"; add_report Vale english "not JSON"; printf "%s\n" "${notes[@]}"' _ "$here/.." 2>&1)"
 status=0
-want "a report that jq can't read" 0 "Vale didn't check the files of the job english: jq couldn't read its report: " "$fix_unknown" "not JSON"
+want "a report that jq can't read" 0 "Vale didn't check the files of the job english: jq couldn't read its report: " "$fix_jq" "not JSON"
+out="$(bash -c '. "$1/lib/lib.sh"; add_report Vale english ""; printf "%s\n" "${notes[@]}"' _ "$here/.." 2>&1)"
+want "an empty report" 0 "Vale didn't check the files of the job english: jq couldn't read its report. $fix_jq"
 
 # When a rule fails on one file, the other files keep their findings, and
 # the note names the file, with the fix of an unknown cause. A rule of the
@@ -180,6 +194,7 @@ want "a check without a package" 0 '"kind":"unknown","reason":"Cannot find modul
 # A failure of Node gives what Node printed in full, with the fix of an
 # unknown cause. A report that check.mjs wrote before Node failed keeps
 # its findings. A warning of Node on stderr is no reason to skip the check.
+# Node runs lib/files.mjs too, which prose.sh runs first.
 printf 'process.emitWarning("A warning of the test");\n' >"$tmp/warn.cjs"
 out="$(cd "$here/cases/japanese" && NODE_OPTIONS="--require $tmp/warn.cjs" "$here/../prose.sh" japanese fail-japanese.md 2>&1)"
 status=$?
@@ -189,11 +204,12 @@ long="$(printf 'A reason of the test%.0s, ' $(seq 1 60))the end"
 printf 'throw new Error("%s");\n' "$long" >"$tmp/crash.cjs"
 out="$(cd "$here/cases/japanese" && NODE_OPTIONS="--require $tmp/crash.cjs" "$here/../prose.sh" japanese fail-japanese.md 2>&1)"
 status=$?
-want "a failure of Node" 1 "textlint didn't check the files of the job japanese: Node exited 1 before check.mjs wrote its report. $fix_unknown" "stderr:" "$long"
+want "a failure of Node in lib/files.mjs" 1 "The checks didn't check the files of the job japanese: Node exited 1. $fix_node" "stderr:" "$long"
+run_lib "$here/cases/japanese" "export NODE_OPTIONS='--require $tmp/crash.cjs'" japanese "$here/cases/japanese/fail-japanese.md"
+want "a failure of Node" 0 "textlint didn't check the files of the job japanese: Node exited 1 before check.mjs wrote its report. $fix_textlint" "stderr:" "$long"
 printf 'process.on("exit", () => { process.exitCode = 3; });\n' >"$tmp/exit.cjs"
-out="$(cd "$here/cases/japanese" && NODE_OPTIONS="--require $tmp/exit.cjs" "$here/../prose.sh" japanese fail-japanese.md 2>&1)"
-status=$?
-want "a failure of Node after the report" 1 "no-mix-dearu-desumasu (error)" "textlint didn't check the files of the job japanese: Node exited 3. $fix_unknown"
+run_lib "$here/cases/japanese" "export NODE_OPTIONS='--require $tmp/exit.cjs'" japanese "$here/cases/japanese/fail-japanese.md"
+want "a failure of Node after the report" 0 "no-mix-dearu-desumasu (error)" "textlint didn't check the files of the job japanese: Node exited 3. $fix_textlint"
 
 # Settings of the repository that config.mjs can't read fail once, with
 # the fix of settings. A rule that textlint can't load fails with all that
@@ -206,7 +222,7 @@ for settings in '{"rules": |JSON5: invalid end of input|settings' \
   '{"rules": {"preset-no-such": true}}|"preset-no-such" is not found|unknown'; do
   printf '%s\n' "${settings%%|*}" >"$tmp/rule/.textlintrc.json"
   rest="${settings#*|}"
-  if [ "${rest#*|}" = settings ]; then fix="$fix_settings"; else fix="$fix_unknown"; fi
+  if [ "${rest#*|}" = settings ]; then fix="$fix_settings"; else fix="$fix_textlint"; fi
   run_in "$tmp/rule" japanese pass-japanese.md fail-japanese.md
   want "settings $(head -c 40 "$tmp/rule/.textlintrc.json")" 1 "textlint didn't check the files of the job japanese: " "${rest%%|*}" "$fix"
   [ "$(grep -c "didn't check" <<<"$out")" -eq 1 ] || { echo "Failed: settings that textlint can't load should fail once, but the check said:"; echo "$out"; failed=1; }
@@ -216,6 +232,11 @@ printf 'module.exports = {};\n' >"$tmp/rule/.textlintrc.js"
 run_in "$tmp/rule" japanese pass-japanese.md
 want "settings in JavaScript" 1 ".textlintrc.js is JavaScript" "$fix_settings"
 rm "$tmp/rule/.textlintrc.js"
+# A key with no value changes nothing, so the rules of the defaults run.
+printf 'rules:\nfilters:\n' >"$tmp/rule/.textlintrc.yml"
+run_in "$tmp/rule" japanese fail-japanese.md
+want "settings with no value" 1 "no-mix-dearu-desumasu (error)"
+rm "$tmp/rule/.textlintrc.yml"
 # Settings that turn off each rule load, and the check passes.
 printf '{"rules": {"preset-ja-technical-writing": false, "@textlint-ja/preset-ai-writing": false, "ja-hiragana-keishikimeishi": false, "ja-hiragana-hojodoushi": false, "ja-hiragana-fukushi": false, "ja-space-between-half-and-full-width": false}}\n' >"$tmp/rule/.textlintrc.json"
 run_in "$tmp/rule" japanese fail-japanese.md
@@ -232,39 +253,80 @@ cp "$here/cases/english/pass-english.md" "$tmp/vale/"
 run_in "$tmp/vale" english pass-english.md
 want "a .vale.ini that Vale can't load" 1 "Style 'NoSuchStyle' isn't on the StylesPath" ".vale.ini, line 2). $fix_settings"
 run_lib "$here/cases/english" 'VALE_STYLES_PATH=/nonexistent' english "$here/cases/english/pass-english.md"
-want "settings of the checks that Vale can't load" 0 "Vale didn't check the files of the job english: Vale failed. $fix_unknown" "Google"
+want "settings of the checks that Vale can't load" 0 "Vale didn't check the files of the job english: Vale failed. Fix: delete $(mise -C "$here/.." where vale) and /nonexistent, " "Google"
+# A Google style that Vale can't load is of the checks too.
+cp -R "$(mise -C "$here/.." where http:vale-google)" "$tmp/styles"
+printf 'extends: [\n' >"$tmp/styles/Google/Latin.yml"
+run_lib "$here/cases/english" "VALE_STYLES_PATH='$tmp/styles'" english "$here/cases/english/pass-english.md"
+want "a Google style that Vale can't load" 0 "Vale didn't check the files of the job english: Vale failed. Fix: delete $(mise -C "$here/.." where vale) and $tmp/styles, " "Latin.yml"
 # A Vale that fails for no reason that the checks know gives all that it
 # printed, with the fix of an unknown cause. A function named vale takes
 # the place of the program.
 for fake in 'return 2' 'echo "{\"Code\": \"E1\"}" >&2; return 2' 'case "$*" in *line*) echo "[$file]:E100:the test broke" >&2 ;; esac; return 2'; do
   run_lib "$here/cases/english" 'file="$PWD/pass-english.md"; vale() { case "$1" in ls-config) command vale "$@"; return ;; esac; '"$fake"'; }' english "$here/cases/english/pass-english.md"
   case "$fake" in
-    'return 2') want "a Vale that says nothing" 0 "Vale didn't check the files of the job english: Vale failed. $fix_unknown" ;;
-    echo*) want "a Vale with JSON that has no Path" 0 "Vale failed. $fix_unknown" '{"Code": "E1"}' ;;
-    *) want "a Vale that fails on one file" 0 "Vale didn't check $here/cases/english/pass-english.md: the test broke. $fix_unknown" ;;
+    'return 2') want "a Vale that says nothing" 0 "Vale didn't check the files of the job english: Vale failed. $fix_vale" ;;
+    echo*) want "a Vale with JSON that has no Path" 0 "Vale failed. $fix_vale" '{"Code": "E1"}' ;;
+    *) want "a Vale that fails on one file" 0 "Vale didn't check $here/cases/english/pass-english.md: the test broke. $fix_vale" ;;
   esac
 done
 run_lib "$here/cases/english" 'vale() { case "$1" in ls-config) echo "A line of ls-config"; return 2 ;; esac; command vale "$@"; }' english "$here/cases/english/pass-english.md"
-want "a failure of ls-config" 0 "Vale failed. $fix_unknown" "stdout:" "A line of ls-config"
+want "a failure of ls-config" 0 "Vale failed. $fix_vale" "stdout:" "A line of ls-config"
 # Settings with no .vale.ini of the repository give a heading with no
 # settings file.
 run_lib "$here/cases/english" 'vale() { case "$1" in ls-config) echo "{}"; return ;; esac; command vale "$@"; }' english "$here/cases/english/fail-english.md"
 want "ls-config with no RootINI" 0 "Vale on $here/cases/english/fail-english.md:"
 unwanted "ls-config with no RootINI" "with null"
 
-# A file that the tool can't read fails with what the tool says, and the
-# fix of an unknown cause. Root reads each file, so this case runs for
-# another user.
+# A file that the checks can't read, or that isn't text in UTF-8, fails
+# with the reason and the fix of a file, in each language. A tool would
+# read other bytes as text that the file doesn't hold, or fail. A file with
+# a NUL byte, such as an image, holds no text and passes. Root reads each
+# file, so the case of a file that the checks can't read runs for another
+# user.
+mkdir "$tmp/read"
+printf '# テスト\n\nこれは日本語の文章です。\n' | iconv -f UTF-8 -t SHIFT_JIS >"$tmp/read/sjis.md"
+printf 'A caf\xe9 sentence.\n' >"$tmp/read/latin1.md"
+printf 'A\0B\xff\n' >"$tmp/read/image.png"
+for language in english japanese; do
+  run_in "$tmp/read" "$language" sjis.md latin1.md image.png
+  want "a file that isn't UTF-8, in $language" 1 "The checks didn't check sjis.md, latin1.md: it isn't text in UTF-8, the only encoding that the checks read. $fix_file $language"
+  unwanted "a file that isn't UTF-8, in $language" "image.png"
+done
 if [ "$(id -u)" -ne 0 ]; then
-  mkdir "$tmp/read"
   printf 'A sentence.\n' >"$tmp/read/closed.md"
   chmod 000 "$tmp/read/closed.md"
-  run_in "$tmp/read" english closed.md
-  want "a file that Vale can't read" 1 "grep didn't check" "closed.md: grep couldn't read the file. $fix_unknown" "Permission denied"
-  run_in "$tmp/read" japanese closed.md
-  want "a file that textlint can't read" 1 "closed.md: grep couldn't read the file. $fix_unknown"
+  for language in english japanese; do
+    run_in "$tmp/read" "$language" closed.md
+    want "a file that the checks can't read, in $language" 1 "The checks didn't check closed.md: the checks couldn't read it: EACCES: permission denied" "$fix_file $language"
+  done
   chmod 600 "$tmp/read/closed.md"
 fi
+
+# A repository whose path holds the characters of a pattern, such as [ and
+# *, gets each path of its report from its root.
+mkdir "$tmp/[x]*"
+cp "$here/cases/english/fail-english.md" "$tmp/[x]*/"
+run_in "$tmp/[x]*" english fail-english.md
+want "a repository with the characters of a pattern" 1 "Vale on fail-english.md:"
+
+# Two runs of setup.sh at once install textlint once: the one that comes
+# second leaves nothing in the place of the first. A command that fails
+# for a cause that setup.sh doesn't know gives the fix of setup.sh. A
+# script named mise takes the place of the program, and installs only a
+# file named textlint.
+mkdir -p "$tmp/setup/bin"
+printf '#!/bin/bash\n[ "${FAIL:-}" = "${2:-}${3:-}" ] && { echo "A line of mise" >&2; exit 1; }\nfor arg in "$@"; do [ "${prev:-}" = --prefix ] && mkdir -p "$arg/node_modules/.bin" && touch "$arg/node_modules/.bin/textlint" && chmod +x "$arg/node_modules/.bin/textlint"; prev="$arg"; done\nexit 0\n' >"$tmp/setup/bin/mise"
+chmod +x "$tmp/setup/bin/mise"
+(XDG_CACHE_HOME="$tmp/setup/cache" && . "$here/../lib/paths.sh" && mkdir -p "$textlint_dir")
+out="$(XDG_CACHE_HOME="$tmp/setup/cache" PATH="$tmp/setup/bin:$PATH" "$here/../setup.sh" 2>&1)"
+status=$?
+out="$out$(ls -A "$tmp"/setup/cache/lovaizu-checks/textlint-*)"
+want "a second setup.sh" 0
+unwanted "a second setup.sh" "textlint."
+out="$(XDG_CACHE_HOME="$tmp/setup/cache2" FAIL="${setup%/setup.sh}install" PATH="$tmp/setup/bin:$PATH" "$here/../setup.sh" 2>&1)"
+status=$?
+want "a setup.sh that fails" 1 "A line of mise" "setup.sh: a command above failed, for a cause that setup.sh doesn't know. Fix: run $setup again. If it still fails, report it with what it printed in an issue of https://github.com/lovaizu/checks/issues."
 
 # A file that Vale can't read fails, with the reason that Vale gives and the
 # fix of a format, and the other files of the run keep their findings.

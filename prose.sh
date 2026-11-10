@@ -26,27 +26,15 @@ esac
 shift
 # The current directory with no link in it, the start of each path.
 cd -P . || exit 1
+# The files that the tools check, by lib/files.mjs, which says which files
+# the checks read, and a note for each file that they can't read.
+out="$(node "$here/lib/files.mjs" "$@" 2>"$work/files.err")"
+status=$?
+add_report "The checks" "$language" "$(jq -n --argjson status "$status" --arg stdout "$out" --rawfile stderr "$work/files.err" '
+  if $status == 0 then $stdout | fromjson
+  else {files: [], notes: [{kind: "unknown", reason: "Node exited \($status)", detail: {stdout: $stdout, stderr: $stderr}}]} end')"
 files=()
-for file in "$@"; do
-  # A link is the file that it points to, which the check reads apart. A
-  # binary file, such as an image, holds no text.
-  # Vale passes a file that it can't read, so the check fails on it here.
-  [ -f "$file" ] && [ ! -L "$file" ] || continue
-  grep -Iq . "$file" 2>"$work/grep.err"
-  case $? in
-    0) ;;
-    1) continue ;;
-    *)
-      add_report grep "$language" "$(jq -n --arg file "$file" --rawfile stderr "$work/grep.err" \
-        '{files: [], notes: [{file: $file, kind: "unknown", reason: "grep couldn'"'"'t read the file", detail: {stderr: $stderr}}]}')"
-      continue
-      ;;
-  esac
-  # The path is absolute, with no link, . or .. in it, as Vale reports it,
-  # so that each finding finds its file.
-  file="$(cd -- "$(dirname -- "$file")" && pwd -P)/${file##*/}"
-  files+=("$file")
-done
+[ "$status" -ne 0 ] || mapfile -d '' -t files < <(jq -j '.texts[] + "\u0000"' <<<"$out")
 [ "${#files[@]}" -eq 0 ] || "$check" "${files[@]}"
 
 if [ "${#notes[@]}" -gt 0 ]; then
@@ -68,12 +56,12 @@ EOF
   if [ -n "$fails" ]; then
     echo "These findings stop the commit:"
     echo
-    printf '%s' "${fails//$PWD\//}"
+    printf '%s' "${fails//"$PWD/"/}"
   fi
   if [ -n "$shows" ]; then
     echo "These findings don't stop the commit. Rethink each one too:"
     echo
-    printf '%s' "${shows//$PWD\//}"
+    printf '%s' "${shows//"$PWD/"/}"
   fi
   cat <<'EOF'
 Rewrite each part for its reader. Don't reword a sentence only to clear

@@ -28,17 +28,31 @@ mkdir -p "$work/vale-home/vale"
   grep -v '^StylesPath' "$root/vale/.vale.ini"
 } >"$work/vale-home/vale/.vale.ini"
 # The fix of each kind of failure, the one place that names them. The
-# checks know the cause only where the tool names a file of the repository:
-# a staged file of a format that the tool doesn't read, or a settings file
-# of the repository. Any other failure has a cause that they don't know,
-# and its note gives all that the tool printed.
+# checks know the cause only where it's a file of the repository: a staged
+# file that the checks can't read, or of a format that the tool doesn't
+# read, or a settings file of the repository that the tool names. Any other
+# failure has a cause that they don't know, and its note gives all that the
+# tool printed.
+fix_file='save each file as text in UTF-8 that the checks can read, or leave it out of the job JOB, with glob or exclude in lefthook.yml'
 fix_format='leave each file out of the job JOB, with glob or exclude in lefthook.yml'
 fix_settings='correct the settings of the repository that the reason names'
-fix_unknown="delete $textlint_dir, run $root/setup.sh, and run the check again. If the check still fails, report it in an issue of lovaizu/checks with this message"
+# The fix of a failure in tool $1 whose cause the checks don't know: delete
+# what setup.sh installed for the tool, which setup.sh then installs again.
+# Node runs textlint and lib/files.mjs.
+fix_unknown() {
+  local installed
+  case "$1" in
+    Vale) installed="$(mise -C "$root" where vale) and $VALE_STYLES_PATH" ;;
+    textlint) installed="$textlint_dir and $(mise -C "$root" where node)" ;;
+    jq) installed="$(mise -C "$root" where jq)" ;;
+    *) installed="$(mise -C "$root" where node)" ;;
+  esac
+  echo "delete $installed, run $root/setup.sh, and run the check again. If the check still fails, report it with this message in an issue of $issues"
+}
 
 # The jq that turns a report of a tool, {source, files: [{file, findings:
 # [{line, check, level, message}]}], notes: [{file, kind, reason, detail}]},
-# into shell that adds to $fails, $shows and $notes. kind is format,
+# into shell that adds to $fails, $shows and $notes. kind is file, format,
 # settings or unknown. A finding at the level warning or error fails. A
 # lower level, suggestion in Vale and info in textlint, shows. A note with
 # no file is about the whole run. The reason keeps its first line, and the
@@ -56,16 +70,18 @@ report_jq='
       + "\n\n"] | join("");
   "fails+=\(part(true) | @sh)", "shows+=\(part(false) | @sh)",
   (.notes | map(.reason |= line) | group_by([.kind, .reason])[]
-    | "notes+=(\(("\($tool) didn'"'"'t check \(map(.file // empty) | if length == 0 then "the files of the job \($job)" else join(", ") end): \(.[0].reason). Fix: \({format: $format, settings: $settings, unknown: $unknown}[.[0].kind] | sub("JOB"; $job)).\(.[0].detail | detail)") | @sh))")
+    | "notes+=(\(("\($tool) didn'"'"'t check \(map(.file // empty) | if length == 0 then "the files of the job \($job)" else join(", ") end): \(.[0].reason). Fix: \({file: $file, format: $format, settings: $settings, unknown: $unknown}[.[0].kind] | sub("JOB"; $job)).\(.[0].detail | detail)") | @sh))")
 '
 
 # Adds report $3 of tool $1 for job $2 by report_jq. A report that jq can't
-# read fails, as it would otherwise pass with no finding.
+# read, or an empty one, fails, as it would otherwise pass with no finding.
+# The fix of an unknown cause asks mise, so only a report with one gets it.
 add_report() {
-  local shell
-  if ! shell="$(jq -r --arg tool "$1" --arg job "$2" --arg format "$fix_format" --arg settings "$fix_settings" \
-    --arg unknown "$fix_unknown" "$report_jq" <<<"$3" 2>"$work/jq.err")"; then
-    notes+=("$1 didn't check the files of the job $2: jq couldn't read its report: $(cat "$work/jq.err"). Fix: $fix_unknown."$'\n'"  report:"$'\n'"$3")
+  local shell unknown=""
+  [[ "$3" != *'"unknown"'* ]] || unknown="$(fix_unknown "$1")"
+  if ! shell="$(jq -r --arg tool "$1" --arg job "$2" --arg file "$fix_file" --arg format "$fix_format" --arg settings "$fix_settings" \
+    --arg unknown "$unknown" "$report_jq" <<<"$3" 2>"$work/jq.err")" || [ -z "$shell" ]; then
+    notes+=("$1 didn't check the files of the job $2: jq couldn't read its report$(sed '1s/^/: /' "$work/jq.err"). Fix: $(fix_unknown jq)."$'\n'"  report:"$'\n'"$3")
     return
   fi
   eval "$shell"
@@ -77,11 +93,12 @@ vale_run() {
 }
 
 # The jq that turns an error of Vale, in its JSON, into a note. Vale names
-# the settings file that fails in Path. The cause is the settings only where
-# that file is of the repository, not of the checks in $root or $work.
+# the file that fails in Path. The cause is the settings only where that
+# file is of the repository, not of the checks in $root, $work or the
+# Google style, $styles.
 vale_error_jq='
   def vale_error($stdout; $stderr): ($stderr | try fromjson catch {}) as $error | ($error.Path // "") as $path
-    | if $path != "" and (($path | startswith($root + "/")) or ($path | startswith($work + "/")) | not)
+    | if $path != "" and ([$root, $work, $styles] | any(. as $dir | $path | startswith($dir + "/")) | not)
       then {kind: "settings", reason: "\($error.Text) (\($path), line \($error.Line))"}
       else {kind: "unknown", reason: "Vale failed", detail: {stdout: $stdout, stderr: $stderr}} end;'
 
@@ -97,7 +114,7 @@ check_english() {
   out="$(vale_run ls-config 2>"$work/vale.err")"
   status=$?
   if [ "$status" -ne 0 ] || ! source="$(jq -er '.RootINI // ""' <<<"$out" 2>/dev/null)"; then
-    add_report Vale english "$(jq -n --arg root "$root" --arg work "$work" --arg stdout "$out" --rawfile stderr "$work/vale.err" \
+    add_report Vale english "$(jq -n --arg root "$root" --arg work "$work" --arg styles "$VALE_STYLES_PATH" --arg stdout "$out" --rawfile stderr "$work/vale.err" \
       "$vale_error_jq {files: [], notes: [vale_error(\$stdout; \$stderr)]}")"
     return
   fi
@@ -110,7 +127,7 @@ check_english() {
   fi
   # A file that Vale names in an error, it didn't check. One that Vale
   # needs a program to read is of a format that it can't read here.
-  add_report Vale english "$(jq -n --arg root "$root" --arg work "$work" --arg source "$source" --argjson status "$status" \
+  add_report Vale english "$(jq -n --arg root "$root" --arg work "$work" --arg styles "$VALE_STYLES_PATH" --arg source "$source" --argjson status "$status" \
     --rawfile json "$work/vale.json" --rawfile errors "$work/vale-line.err" --rawfile stderr "$work/vale.err" "$vale_error_jq"'
     ($json | try fromjson catch {}) as $vale
     | [$errors | split("\n")[] | capture("^\\[(?<file>.+)\\]:E[0-9]+:(?<reason>.*)$")] as $failed

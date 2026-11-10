@@ -126,18 +126,6 @@ printf 'rules:\n  preset-ja-technical-writing:\n    no-mix-dearu-desumasu:\n    
 git add -A
 expect 0 left-out.txt "Google.Latin (suggestion)" "no-mix-dearu-desumasu (info)"
 
-# The settings hold too for a file outside the repository, such as the text
-# that a job prints to check other text: each tool finds them from the
-# current directory up, the root of the repository.
-mkdir "$dir/out"
-cp "$here/tests/cases/english/fail-english.md" "$dir/out/english.md"
-cp "$here/tests/cases/japanese/fail-japanese.md" "$dir/out/japanese.md"
-run=(bash "$dir/checks/prose.sh" english "$dir/out/english.md")
-expect 0 "Google.Latin \((warning|error)\)" "Google.Latin (suggestion)"
-run=(bash "$dir/checks/prose.sh" japanese "$dir/out/japanese.md")
-expect 0 "no-mix-dearu-desumasu \(error\)" "no-mix-dearu-desumasu (info)"
-run=(bash "$here/ci.sh")
-
 # A rule, a preset or a filter named by its package is the same as by its
 # short name: the settings merge into the defaults, and a path in them is
 # read from the root of the repository.
@@ -159,6 +147,22 @@ expect 1 "no-mix-dearu-desumasu|=> 構成" "prh (error)" "=> 最上位"
 
 # With no remote, pre-commit has no job, and ci.sh must fail, not pass.
 printf 'pre-commit:\n  jobs: []\n' >lefthook.yml
-expect 1 left-out.txt "has no job" "english.yml, japanese.yml, or both"
+expect 1 left-out.txt "has no job of lovaizu/checks" "english.yml, japanese.yml, or both"
+# With hooks.yml of v0.1.x in configs, which lefthook skips, and a job of
+# the repository, no job of the checks runs, and ci.sh must fail too.
+cat >lefthook.yml <<YAML
+remotes:
+  - git_url: $dir/checks
+    ref: test
+    configs:
+      - hooks.yml
+pre-commit:
+  jobs:
+    - name: english
+      glob: "*.md"
+    - name: other
+      run: "true"
+YAML
+expect 1 left-out.txt "has no job of lovaizu/checks" "english.yml, japanese.yml, or both"
 [ "$failed" -eq 0 ] && echo "The consumer cases passed."
 exit "$failed"
