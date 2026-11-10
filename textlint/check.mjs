@@ -34,31 +34,28 @@ async function ignoredFiles() {
   return left;
 }
 
-// The plugins that textlint always has, before those of the settings, as
-// loadTextlintrc of textlint gives them.
-function builtInPlugins() {
-  const plugin = (id) => ({ pluginId: id, plugin: require(id).default || require(id), options: true });
-  return [plugin("@textlint/textlint-plugin-text"), plugin("@textlint/textlint-plugin-markdown")];
-}
-
 async function main() {
   const { config, source } = settings(modules, start);
   const configFilePath = path.join(work, "textlintrc.json");
   fs.writeFileSync(configFilePath, JSON.stringify(config, null, 2));
   const { loadConfig } = require("@textlint/config-loader");
   const loaded = await loadConfig({ configFilePath, node_modulesDir: modules });
+  // textlint names the module that it can't load, not the settings that
+  // name it, which can be those of the checks.
   if (!loaded.ok) {
-    const reason = [loaded.error.message, ...loaded.error.errors.map((error) => error.message)];
-    return { source, files: [], notes: [{ kind: "settings", reason }] };
+    const reason = [loaded.error.message, ...loaded.error.errors.map((error) => error.message)].join(": ");
+    return { source, files: [], notes: [{ kind: "unknown", reason, detail: { errors: reason } }] };
   }
-  const { TextlintKernelDescriptor } = require("@textlint/kernel");
   const { rules, plugins, filterRules } = loaded.config;
   // The level that the settings give each rule, by the ID that textlint
   // reports. textlint drops this level from a finding that a rule reports
   // as a plain object, not as a RuleError, as ai-tech-writing-guideline of
   // preset-ai-writing does, so the checks give the finding this level.
   const levels = Object.fromEntries(rules.filter((rule) => typeof rule.options?.severity === "string").map((rule) => [rule.ruleId, rule.options.severity]));
-  const descriptor = new TextlintKernelDescriptor({ rules, filterRules, plugins: [...builtInPlugins(), ...plugins], configBaseDir: work });
+  // The descriptor that loadTextlintrc of textlint builds from the same
+  // settings, with the plugins that textlint always has first.
+  const { builtInPlugins, loadBuiltinPlugins } = require("textlint/lib/src/loader/TextlintrcLoader.js");
+  const descriptor = (await loadBuiltinPlugins()).shallowMerge({ rules, filterRules, plugins: [...builtInPlugins, ...plugins], configBaseDir: work });
   const { createLinter } = require("textlint");
   const linter = createLinter({ descriptor, cwd: start });
   // A plugin reads an extension only if no plugin before it reads it.

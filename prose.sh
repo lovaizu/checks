@@ -30,13 +30,15 @@ files=()
 for file in "$@"; do
   # A link is the file that it points to, which the check reads apart. A
   # binary file, such as an image, holds no text.
+  # Vale passes a file that it can't read, so the check fails on it here.
   [ -f "$file" ] && [ ! -L "$file" ] || continue
   grep -Iq . "$file" 2>"$work/grep.err"
   case $? in
     0) ;;
     1) continue ;;
     *)
-      add_report "The checks" "$language" "$(jq -n --arg file "$file" --rawfile reason "$work/grep.err" '{files: [], notes: [{file: $file, kind: "read", reason: $reason}]}')"
+      add_report grep "$language" "$(jq -n --arg file "$file" --rawfile stderr "$work/grep.err" \
+        '{files: [], notes: [{file: $file, kind: "unknown", reason: "grep couldn'"'"'t read the file", detail: {stderr: $stderr}}]}')"
       continue
       ;;
   esac
