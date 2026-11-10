@@ -32,7 +32,7 @@ For a repository that holds only English:
 ```yaml
 remotes:
   - git_url: https://github.com/lovaizu/checks
-    ref: v0.1.0
+    ref: v0.2.0
     configs:
       - english.yml
 ```
@@ -43,7 +43,7 @@ For a repository that holds both languages, give each job its files, or each job
 glob_matcher: doublestar
 remotes:
   - git_url: https://github.com/lovaizu/checks
-    ref: v0.1.0
+    ref: v0.2.0
     configs:
       - english.yml
       - japanese.yml
@@ -63,7 +63,7 @@ With [`glob_matcher: doublestar`](https://lefthook.dev/configuration/glob_matche
 Run `lefthook install` once in each clone. In CI, add this step after `actions/checkout`, at the commit of the same tag:
 
 ```yaml
-- uses: lovaizu/checks@<commit of v0.1.0>
+- uses: lovaizu/checks@<commit of v0.2.0>
 ```
 
 The first run installs the tools of `mise.toml` with the sha256 of `mise.lock`, and textlint and its rules with the integrity of `textlint/package-lock.json`, into `~/.cache/lovaizu-checks`.
