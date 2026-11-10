@@ -11,7 +11,7 @@ for file in "$here"/cases/*; do
   name="${file##*/}"
   out="$("$here/../prose.sh" "$file" 2>&1)"
   status=$?
-  want="$(grep -m 1 -oE 'expect: [^,>]+[^ ,>-]' "$file" | sed 's/^expect: //')"
+  want="$(grep -m 1 -oE 'expect: [^>]*[^ >-]' "$file" | sed 's/^expect: //')"
   case "$name" in
     pass-*)
       if [ "$status" -ne 0 ] || [ -n "$out" ]; then

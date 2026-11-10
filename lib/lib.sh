@@ -82,11 +82,26 @@ textlint_levels="$work/textlint-levels.json"
 textlint_source=""
 textlint_ready=""
 
-# Runs textlint on file $1, when it holds Japanese: hiragana or katakana.
-# textlint reads Markdown and plain text, and no other format.
+# Runs textlint on the Japanese of file $1. textlint reads Markdown and
+# plain text, and no other format.
 check_japanese() {
-  local file="$1" out found
-  jq -Rse 'test("[\\p{Hiragana}\\p{Katakana}]")' "$file" >/dev/null || return
+  local file="$1" out found dir name text
+  # textlint is the standard of the Japanese, so it reads only the lines
+  # that hold more Japanese characters than Latin letters. Each other line
+  # stays as an empty line, so that a finding keeps the line number of the
+  # file. An English sentence with a Japanese name in it, such as ⌘英かな,
+  # stays out, as the Japanese rules would break it. A fence of a code
+  # block stays, so that the code stays code. The file goes to textlint
+  # when the lines left hold hiragana or katakana.
+  dir="$(mktemp -d "$work/japanese.XXXXXX")"
+  name="${file##*/}"
+  jq -Rsr '
+    def count(re): [scan(re)] | length;
+    split("\n") | map(
+      if test("^\\s*(```|~~~)") or count("[\\p{Hiragana}\\p{Katakana}\\p{Han}]") > count("[A-Za-z]") then . else "" end
+    ) | join("\n")' "$file" >"$dir/$name"
+  jq -Rse 'test("[\\p{Hiragana}\\p{Katakana}]")' "$dir/$name" >/dev/null || return
+  text="$dir/$name"
   if [ ! -x "$textlint_dir/node_modules/.bin/textlint" ]; then
     notes+=("textlint isn't installed, so the check skipped the Japanese. Fix: run $root/setup.sh.")
     return
@@ -101,7 +116,7 @@ check_japanese() {
   fi
   [ "$textlint_ready" = 1 ] || return
   out="$("$textlint_dir/node_modules/.bin/textlint" --format json --config "$textlint_config" \
-    --rules-base-directory "$textlint_dir/node_modules" "$file" 2>&1)"
+    --rules-base-directory "$textlint_dir/node_modules" "$text" 2>&1)"
   # textlint gives each finding a level by number: 1 warning, 2 error and
   # 3 info. The level that the settings name for a rule comes first, as
   # config.mjs says.

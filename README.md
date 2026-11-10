@@ -9,7 +9,7 @@ The checks are for the text that people and agents read. They stop text that fal
 `prose.sh` checks each file that it gets:
 
 - English, by [Vale](https://vale.sh) with the [Google developer documentation style](https://developers.google.com/style).
-- Japanese, by [textlint](https://textlint.org), in each file that holds hiragana or katakana. It runs these rules:
+- Japanese, by [textlint](https://textlint.org), on the lines that hold more Japanese characters than Latin letters, so that an English sentence with a Japanese name in it stays with Vale. It runs these rules:
   - [`textlint-rule-preset-ja-technical-writing`](https://github.com/textlint-ja/textlint-rule-preset-ja-technical-writing)
   - [`@textlint-ja/textlint-rule-preset-ai-writing`](https://github.com/textlint-ja/textlint-rule-preset-ai-writing)
   - [`textlint-rule-ja-hiragana-keishikimeishi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-keishikimeishi), [`textlint-rule-ja-hiragana-hojodoushi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-hojodoushi) and [`textlint-rule-ja-hiragana-fukushi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-fukushi)
