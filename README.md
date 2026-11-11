@@ -96,7 +96,7 @@ The first run installs the tools of `mise.toml` with the sha256 of `mise.lock`, 
 
 ### Check what Claude Code writes
 
-A Claude Code agent writes the title and body of each Issue and pull request, and each comment on them, with `gh`, and no commit hook sees these texts. To check them, and each file that the agent writes, add this hook to the `.claude/settings.json` of your repository:
+A Claude Code agent writes the title and body of each Issue and pull request, and each comment on them, with `gh`, and no commit hook checks these texts. To check them, and each file that the agent writes, add this hook to the `.claude/settings.json` of your repository:
 
 ```json
 {
