@@ -24,21 +24,10 @@ case "$language" in
     ;;
 esac
 shift
-# The current directory with no link in it, the start of each path.
+# The current directory with no link in it, the root of the repository,
+# where the search for settings ends.
 cd -P . || exit 1
-# The files that the tools check, by lib/files.mjs, which says which files
-# the checks read, and a note for each file that they can't read.
-out="$(node "$here/lib/files.mjs" "$@" 2>"$work/files.err")"
-status=$?
-add_report "The checks" "$language" "$(jq -n --argjson status "$status" --arg stdout "$out" --rawfile stderr "$work/files.err" '
-  if $status == 0 then $stdout | fromjson
-  else {files: [], notes: [{kind: "unknown", reason: "Node exited \($status)", detail: {stdout: $stdout, stderr: $stderr}}]} end')"
-files=()
-if [ "$status" -eq 0 ]; then
-  mapfile -d '' -t files < <(jq -j '.texts[] + "\u0000"' <<<"$out")
-  names="$(jq -c .names <<<"$out")"
-fi
-[ "${#files[@]}" -eq 0 ] || "$check" "${files[@]}"
+"$check" "$@"
 
 if [ "${#notes[@]}" -gt 0 ]; then
   printf 'prose.sh: %s\n' "${notes[@]}" >&2
@@ -59,12 +48,12 @@ EOF
   if [ -n "$fails" ]; then
     echo "These findings stop the commit:"
     echo
-    printf '%s' "${fails//"$PWD/"/}"
+    printf '%s' "$fails"
   fi
   if [ -n "$shows" ]; then
     echo "These findings don't stop the commit. Rethink each one too:"
     echo
-    printf '%s' "${shows//"$PWD/"/}"
+    printf '%s' "$shows"
   fi
   cat <<'EOF'
 Rewrite each part for its reader. Don't reword a sentence only to clear

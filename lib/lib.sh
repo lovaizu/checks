@@ -1,10 +1,8 @@
 # The checks of prose.sh. Vale checks the English with the Google developer
-# documentation style, and textlint checks the Japanese. The repository
-# chooses which files each one checks, and each tool reads them and finds
-# its settings as "What it checks" and "Change a setting" in README.md say.
-# Each check adds its findings to $fails or $shows, by the level that the
-# tool gives them, and the reasons that it couldn't check a file to $notes.
-# Run setup.sh first, as prose.sh does.
+# documentation style, and textlint checks the Japanese. Each check adds its
+# findings to $fails or $shows, by the level that the tool gives them, and a
+# note for each file that it didn't check to $notes. Run setup.sh first, as
+# prose.sh does.
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$root/lib/paths.sh"
@@ -15,188 +13,116 @@ export VALE_STYLES_PATH
 fails=""
 shows=""
 notes=()
-# The paths in the repository of each file that the tools check, by its
-# path with no link, as lib/files.mjs gives them: a link shows under its own
-# path.
-names='{}'
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 # Vale reads vale/.vale.ini as its user-level file, through
-# XDG_CONFIG_HOME, and lays the .vale.ini of the repository over it. The
+# XDG_CONFIG_HOME, and lays the settings of the repository over it. The
 # copy names the StylesPath of this repository, as Vale reads a relative
-# path from the directory of the file.
+# path from the directory of the file. A file with no settings of the
+# repository gets an empty file.
 mkdir -p "$work/vale-home/vale"
 {
   echo "StylesPath = $root/vale/styles"
   grep -v '^StylesPath' "$root/vale/.vale.ini"
 } >"$work/vale-home/vale/.vale.ini"
-# The settings that Vale reads where the repository has none of its own.
 : >"$work/vale-empty.ini"
-# The fix of each kind of failure, the one place that names them. The
-# checks know the cause only where it's a file of the repository: a staged
-# file that the checks can't read, or of a format that the tool doesn't
-# read, or a settings file of the repository that the tool names. Any other
-# failure has a cause that they don't know, and its note gives all that the
-# tool printed.
-fix_file='make each file text of the repository in UTF-8 that the checks can read, or leave it out of the job JOB, with glob or exclude in lefthook.yml'
-fix_format='leave each file out of the job JOB, with glob or exclude in lefthook.yml'
-fix_settings='correct the settings of the repository that the reason names'
-# The fix of a failure in tool $1 whose cause the checks don't know: delete
-# what setup.sh installed for the tool, which setup.sh then installs again.
-# Node runs textlint and lib/files.mjs.
-fix_unknown() {
-  local installed
-  case "$1" in
-    Vale) installed="$(mise -C "$root" where vale) and $VALE_STYLES_PATH" ;;
-    textlint) installed="$textlint_dir and $(mise -C "$root" where node)" ;;
-    jq) installed="$(mise -C "$root" where jq)" ;;
-    *) installed="$(mise -C "$root" where node)" ;;
+
+# Adds a note that tool $1 didn't check the files after $2, for reason $2,
+# with all that the tool printed, in $work/out and $work/err. The checks
+# can't tell where the cause is, so the note gives both fixes.
+fail_run() {
+  local tool="$1" reason="$2" files
+  shift 2
+  files="$(printf '%s, ' "$@")"
+  notes+=("$tool didn't check ${files%, }: $reason. Fix: if the output names a file of the repository, correct it. Otherwise, run $root/setup.sh again, and if the check still fails, report it with this message in an issue of $issues."$'\n'"  stdout:"$'\n'"$(sed 's/^/    /' "$work/out")"$'\n'"  stderr:"$'\n'"$(sed 's/^/    /' "$work/err")")
+}
+
+# Succeeds where file $1 holds text for the tools. A file that isn't
+# there, such as one that the commit deletes, and a file with a NUL byte,
+# such as an image, hold none. The tools read UTF-8 alone, and read other
+# bytes as text that the file doesn't hold, so another file fails.
+is_text() {
+  [ -f "$1" ] || return 1
+  : >"$work/out"
+  tr -d '\000' <"$1" 2>"$work/err" | cmp -s - "$1" 2>>"$work/err"
+  case $? in
+    0) ;;
+    1) return 1 ;;
+    *) fail_run "The checks" "they couldn't read it" "$1"; return 1 ;;
   esac
-  echo "delete $installed, run $root/setup.sh, and run the check again. If the check still fails, report it with this message in an issue of $issues"
+  iconv -f UTF-8 -t UTF-8 "$1" >/dev/null 2>&1 && return
+  notes+=("The checks didn't check $1: it isn't text in UTF-8, the only encoding that they read. Fix: write it in UTF-8, or leave it out of the job, with exclude in lefthook.yml.")
+  return 1
 }
 
-# The jq that turns a report of a tool, {files: [{file, source, findings:
-# [{line, check, level, message}]}], notes: [{file, kind, reason, detail}]},
-# into shell that adds to $fails, $shows and $notes. kind is file, format,
-# settings or unknown. A finding at the level warning or error fails. A
-# lower level, suggestion in Vale and info in textlint, shows. source is
-# the settings file of the repository that applies to the file, if any. A
-# note with no file is about the whole run. The reason keeps its first
-# line, and the detail, such as what the tool printed, comes in full. Notes
-# with the same kind and reason become one. Each file goes by its names in
-# $names.
-report_jq='
-  def named: . as $entry | ($names[$entry.file // ""] // [$entry.file]) | map($entry + {file: .})[];
-  .files |= map(named) | .notes |= map(named) |
-  def line: tostring | split("\n") | map(select(test("\\S"))) | (.[0] // "") | sub("[.\\s]+$"; "");
-  def detail: (. // {}) | to_entries | map(select((.value // "") | test("\\S")))
-    | map("\n  \(.key):\n    \(.value | sub("\\s+$"; "") | gsub("\n"; "\n    "))") | join("");
-  def part(stops): [.files[]
-    | (.findings | map(select((.level == "warning" or .level == "error") == stops))) as $found
-    | select($found | length > 0)
-    | "\($tool) on \(.file)\(if (.source // "") == "" then "" else ", with \(.source)" end):\n"
-      + ($found | map("- Line \(.line), \(.check) (\(.level)): \(.message // "" | sub("\\s+$"; "") | gsub("\n"; "\n  "))") | join("\n"))
-      + "\n\n"] | join("");
-  "fails+=\(part(true) | @sh)", "shows+=\(part(false) | @sh)",
-  (.notes | map(.reason |= line) | group_by([.kind, .reason])[]
-    | "notes+=(\(("\($tool) didn'"'"'t check \(map(.file // empty) | if length == 0 then "the files of the job \($job)" else join(", ") end): \(.[0].reason). Fix: \({file: $file, format: $format, settings: $settings, unknown: $unknown}[.[0].kind] | sub("JOB"; $job)).\(.[0].detail | detail)") | @sh))")
-'
-
-# Adds report $3 of tool $1 for job $2 by report_jq. A report that jq can't
-# read, or an empty one, fails, as it would otherwise pass with no finding.
-# The fix of an unknown cause asks mise, so only a report with one gets it.
-add_report() {
-  local shell unknown=""
-  [[ "$3" != *'"unknown"'* ]] || unknown="$(fix_unknown "$1")"
-  if ! shell="$(jq -r --argjson names "$names" --arg tool "$1" --arg job "$2" --arg file "$fix_file" --arg format "$fix_format" --arg settings "$fix_settings" \
-    --arg unknown "$unknown" "$report_jq" <<<"$3" 2>"$work/jq.err")" || [ -z "$shell" ]; then
-    notes+=("$1 didn't check the files of the job $2: jq couldn't read its report$(sed '1s/^/: /' "$work/jq.err"). Fix: $(fix_unknown jq)."$'\n'"  report:"$'\n'"$3")
-    return
-  fi
-  eval "$shell"
+# Adds the findings of report $2 of tool $1, {files: [{file, findings:
+# [{line, check, level, message}]}]}. A finding at the level warning or
+# error goes to $fails, and one at a lower level, suggestion in Vale and
+# info in textlint, to $shows. Fails where jq can't read the report.
+add_findings() {
+  local stops part
+  for stops in true false; do
+    part="$(jq -er --arg tool "$1" --argjson stops "$stops" '[.files[]
+      | (.findings | map(select((.level == "warning" or .level == "error") == $stops))) as $found
+      | select($found | length > 0)
+      | "\($tool) on \(.file):\n" + ($found | map("- Line \(.line), \(.check) (\(.level)): \(.message | sub("\\s+$"; "") | gsub("\n"; "\n  "))") | join("\n"))]
+      | join("\n\n")' <<<"$2" 2>"$work/err")" || return 1
+    [ -n "$part" ] || continue
+    if [ "$stops" = true ]; then fails+="$part"$'\n\n'; else shows+="$part"$'\n\n'; fi
+  done
 }
 
-# Runs Vale with settings file $vale_config in its directory, where Vale
-# reads a relative path of the settings from, with the defaults of the
-# checks as its user-level settings. --config keeps out the settings of
-# VALE_CONFIG_PATH and of the home directory, which Vale would read in
-# place of those of the repository.
-vale_run() {
-  (cd "${vale_config%/*}" && XDG_CONFIG_HOME="$work/vale-home" vale --config="$vale_config" "$@")
-}
-
-# The jq that turns an error of Vale, in its JSON, into a note. Vale names
-# the file that fails in Path. The cause is the settings only where that
-# file is of the repository, not of the checks in $root, $work or the
-# Google style, $styles.
-vale_error_jq='
-  def vale_error($stdout; $stderr): ($stderr | try fromjson catch {}) as $error | ($error.Path // "") as $path
-    | if $path != "" and ([$root, $work, $styles] | any(. as $dir | $path | startswith($dir + "/")) | not)
-      then {kind: "settings", reason: "\($error.Text) (\($path), line \($error.Line))"}
-      else {kind: "unknown", reason: "Vale failed", detail: {stdout: $stdout, stderr: $stderr}} end;'
-
-# Runs Vale on all the files given, once for each settings file of the
-# repository. Vale would find its settings from the directory where it runs
-# up, past the root of the repository, the current directory. So the
-# checks find the nearest .vale.ini, _vale.ini or vale.ini of each file,
-# from its directory up to the root, and give it to Vale.
-check_english() {
-  local file dir name config vale_config group runs
-  local -A configs=()
-  for file in "$@"; do
-    dir="${file%/*}"
-    config=""
-    while [ -z "$config" ]; do
-      for name in .vale.ini _vale.ini vale.ini; do
-        [ ! -f "$dir/$name" ] || { config="$dir/$name"; break; }
-      done
-      [[ "$dir" == "$PWD"/* ]] || break
-      dir="${dir%/*}"
+# Prints the settings of Vale for file $1: the nearest .vale.ini, _vale.ini
+# or vale.ini from its directory up to the root of the repository, the
+# current directory, or the empty file.
+vale_config() {
+  local dir="$PWD/$1" name
+  while [[ "$dir" == "$PWD"/* ]]; do
+    dir="${dir%/*}"
+    for name in .vale.ini _vale.ini vale.ini; do
+      [ ! -f "$dir/$name" ] || { echo "$dir/$name"; return; }
     done
-    configs["$file"]="${config:-$work/vale-empty.ini}"
   done
-  mapfile -d '' -t runs < <(printf '%s\0' "${configs[@]}" | sort -zu)
-  for vale_config in "${runs[@]}"; do
-    group=()
-    for file in "$@"; do [ "${configs[$file]}" != "$vale_config" ] || group+=("$file"); done
-    vale_check "${group[@]}"
-  done
+  echo "$work/vale-empty.ini"
 }
 
-# Runs Vale once on all the files given, with settings file $vale_config of
-# the repository over the defaults, and reads its findings as JSON, even
-# where the run fails. Vale goes on past a file that it can't read, but its
-# JSON error doesn't name the file. So when the run fails, Vale runs once
-# more with the output line on the files that its report doesn't name, and
-# those errors name each file, such as "[notes.rst]:E100:rst2html not
-# found". Vale reads a file in the format that its extension names.
-vale_check() {
-  local out status source="$vale_config" left=()
-  [[ "$source" != "$work"/* ]] || source=""
-  out="$(vale_run ls-config 2>"$work/vale.err")"
-  status=$?
-  if [ "$status" -ne 0 ] || ! jq -e . <<<"$out" >/dev/null 2>&1; then
-    add_report Vale english "$(jq -n --arg root "$root" --arg work "$work" --arg styles "$VALE_STYLES_PATH" --arg stdout "$out" --rawfile stderr "$work/vale.err" \
-      "$vale_error_jq {files: [], notes: [vale_error(\$stdout; \$stderr) + {file: \$ARGS.positional[]}]}" --args "$@")"
-    return
-  fi
-  vale_run --no-exit --output=JSON "$@" >"$work/vale.json" 2>"$work/vale.err"
-  status=$?
-  : >"$work/vale-line.err"
-  if [ "$status" -ne 0 ]; then
-    mapfile -t left < <(jq -rRs --args '(try fromjson catch {}) as $vale | $ARGS.positional[] | select(. as $f | $vale | has($f) | not)' "$@" <"$work/vale.json")
-    [ "${#left[@]}" -eq 0 ] || vale_run --no-exit --output=line "${left[@]}" >/dev/null 2>"$work/vale-line.err"
-  fi
-  # A file that Vale names in an error, it didn't check. One that Vale
-  # needs a program to read is of a format that it can't read here.
-  add_report Vale english "$(jq -n --arg root "$root" --arg work "$work" --arg styles "$VALE_STYLES_PATH" --arg source "$source" --argjson status "$status" \
-    --rawfile json "$work/vale.json" --rawfile errors "$work/vale-line.err" --rawfile stderr "$work/vale.err" "$vale_error_jq"'
-    ($json | try fromjson catch {}) as $vale
-    | [$errors | split("\n")[] | capture("^\\[(?<file>.+)\\]:E[0-9]+:(?<reason>.*)$")] as $failed
-    | {files: [$ARGS.positional[] | select(IN($failed[].file) | not)
-        | {file: ., source: $source, findings: [($vale[.] // [])[] | {line: .Line, check: .Check, level: .Severity, message: .Message}]}],
-      notes: ([$failed[] | if .reason | test("needed to read") then {file, reason, kind: "format"}
-          else {file, reason, kind: "unknown", detail: {stderr: $errors}} end]
-        + if $status != 0 and ($failed | length) == 0 then [vale_error($json; $stderr) + {file: $ARGS.positional[]}] else [] end
-        + [$vale | keys[] | select(IN($ARGS.positional[]) | not) | {kind: "unknown", reason: "Vale reported \(.), which it wasn'"'"'t given by that path"}])}' \
-    --args "$@")"
+# Runs Vale on each file given, one at a time, with its settings, by
+# --config: without it, Vale would read VALE_CONFIG_PATH or the .vale.ini
+# of the home directory in place of the settings of the repository. Vale
+# runs in the directory of its settings, where it reads a relative path of
+# them from, and reads each file in the format that its extension names.
+check_english() {
+  local file config status
+  for file in "$@"; do
+    is_text "$file" || continue
+    config="$(vale_config "$file")"
+    (path="$PWD/$file" && cd "${config%/*}" && XDG_CONFIG_HOME="$work/vale-home" vale --config="$config" --no-exit --output=JSON "$path") >"$work/out" 2>"$work/err"
+    status=$?
+    if [ "$status" -ne 0 ]; then
+      fail_run Vale "Vale exited $status" "$file"
+    elif ! add_findings Vale "$(jq --arg file "$file" '{files: [{file: $file, findings: [.[][] | {line: .Line, check: .Check, level: .Severity, message: .Message}]}]}' "$work/out" 2>"$work/err")"; then
+      fail_run Vale "jq couldn't read its report" "$file"
+    fi
+  done
 }
 
 # Runs textlint once on all the files given, by textlint/check.mjs, which
-# says how it checks each file. The report that check.mjs writes counts
-# even where Node then fails, and a failure of Node, with no report or
-# after one, adds a note of an unknown cause.
+# says how it checks each file and writes its report to
+# $work/textlint.json. Each file of a format that textlint doesn't read
+# fails, with the formats that it reads.
 check_japanese() {
-  local out status
-  : >"$work/textlint.json"
-  out="$(node "$root/textlint/check.mjs" "$textlint_dir/node_modules" "$PWD" "$work" "$@" 2>"$work/textlint.err")"
+  local file texts=() status formats
+  for file in "$@"; do is_text "$file" && texts+=("$file"); done
+  [ "${#texts[@]}" -gt 0 ] || return 0
+  node "$root/textlint/check.mjs" "$textlint_dir/node_modules" "$work" "${texts[@]}" >"$work/out" 2>"$work/err"
   status=$?
-  add_report textlint japanese "$(jq -n --argjson status "$status" --arg stdout "$out" \
-    --rawfile report "$work/textlint.json" --rawfile stderr "$work/textlint.err" '
-    ($report | try fromjson catch null) as $written
-    | ($written // {files: [], notes: []})
-    | if $written == null or $status != 0
-      then .notes += [{kind: "unknown", reason: "Node exited \($status)\(if $written == null then " before check.mjs wrote its report" else "" end)", detail: {stdout: $stdout, stderr: $stderr}}]
-      else . end')"
+  if [ "$status" -ne 0 ]; then
+    fail_run textlint "Node exited $status" "${texts[@]}"
+  elif ! add_findings textlint "$(cat "$work/textlint.json")" || ! formats="$(jq -r '.notes | group_by(.reason)[]
+    | "textlint didn'"'"'t check \(map(.file) | join(", ")): \(.[0].reason). Fix: leave each file out of the job japanese, with glob or exclude in lefthook.yml."' "$work/textlint.json" 2>"$work/err")"; then
+    fail_run textlint "jq couldn't read its report" "${texts[@]}"
+  elif [ -n "$formats" ]; then
+    mapfile -t -O "${#notes[@]}" notes <<<"$formats"
+  fi
 }

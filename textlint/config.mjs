@@ -13,46 +13,27 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 
-// An error in the settings of the repository, which the repository can
-// correct.
-export class SettingsError extends Error {}
-
-function fail(message) {
-  throw new SettingsError(message);
-}
-
 // Reads file $file by function $read, and fails where the file isn't valid.
 function parse(file, read) {
   try {
     return read(fs.readFileSync(file, "utf8"));
   } catch (error) {
-    fail(`textlint couldn't read ${file}: ${error.message}`);
+    throw new Error(`textlint couldn't read ${file}: ${error.message}`);
   }
 }
 
 // Finds the settings of the repository from directory $dir up to the root
 // of the repository, $root, with the function $require that loads the
-// modules of textlint. A JavaScript file
-// runs to make its settings, so the checks can't merge it.
+// modules of textlint. A JavaScript file runs to make its settings, so the
+// checks can't merge it. textlint reads .textlintrc as JSON or YAML.
 function find(require, dir, root) {
   const JSON5 = require("json5");
   const yaml = require("js-yaml");
   for (const name of [".textlintrc.cjs", ".textlintrc.js", ".textlintrc.json", ".textlintrc.yaml", ".textlintrc.yml", ".textlintrc"]) {
     const file = path.join(dir, name);
     if (!fs.existsSync(file)) continue;
-    if (name.endsWith("js")) fail(`${file} is JavaScript, which the checks can't merge into their defaults: write it as JSON or YAML`);
-    if (name.endsWith(".json")) return { file, config: parse(file, JSON5.parse) };
-    if (name.endsWith(".yaml") || name.endsWith(".yml")) return { file, config: parse(file, yaml.load) || {} };
-    const text = fs.readFileSync(file, "utf8");
-    // textlint reads .textlintrc as JSON, then YAML, then JavaScript.
-    try {
-      return { file, config: JSON5.parse(text) };
-    } catch {}
-    try {
-      const config = yaml.load(text);
-      if (config === undefined || (typeof config === "object" && !Array.isArray(config))) return { file, config: config || {} };
-    } catch {}
-    fail(`${file} is neither JSON nor YAML, so textlint would read it as JavaScript, which the checks can't merge into their defaults`);
+    if (name.endsWith("js")) throw new Error(`${file} is JavaScript, which the checks can't merge into their defaults: write it as JSON or YAML`);
+    return { file, config: parse(file, name.endsWith(".json") ? JSON5.parse : yaml.load) || {} };
   }
   const pkg = path.join(dir, "package.json");
   if (fs.existsSync(pkg)) {
@@ -60,7 +41,7 @@ function find(require, dir, root) {
     if (json.textlint) return { file: pkg, config: json.textlint };
   }
   const parent = path.dirname(dir);
-  return dir === root || parent === dir || !dir.startsWith(root + path.sep) ? null : find(require, parent, root);
+  return dir === root || parent === dir ? null : find(require, parent, root);
 }
 
 const isObject = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
@@ -90,10 +71,9 @@ function normalize(require, config) {
 
 // textlint reads the paths in the options of a rule from the directory of
 // its settings file. The merged file lives elsewhere, so each path that
-// the repository names becomes absolute, and must exist.
+// the repository names becomes absolute.
 function resolvePaths(config, dir) {
-  const exists = (p) => (fs.existsSync(p) ? p : fail(`the settings of textlint in ${dir} name ${p}, which doesn't exist`));
-  const fix = (paths) => (Array.isArray(paths) ? paths.map((p) => (p.startsWith("~") ? p : exists(path.resolve(dir, p)))) : paths);
+  const fix = (paths) => (Array.isArray(paths) ? paths.map((p) => (p.startsWith("~") ? p : path.resolve(dir, p))) : paths);
   const prh = config.rules?.prh;
   if (isObject(prh) && prh.rulePaths) prh.rulePaths = fix(prh.rulePaths);
   const allow = config.filters?.allowlist;
