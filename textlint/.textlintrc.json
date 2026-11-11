@@ -9,6 +9,7 @@
     "ja-hiragana-keishikimeishi": true,
     "ja-hiragana-hojodoushi": true,
     "ja-hiragana-fukushi": true,
+    "ja-no-unneeded-comma": true,
     "prh": false,
     "ja-space-between-half-and-full-width": {
       "space": "never"
