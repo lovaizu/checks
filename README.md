@@ -94,6 +94,47 @@ Run `lefthook install` once in each clone. In CI, add this step after `actions/c
 
 The first run installs the tools of `mise.toml` with the sha256 of `mise.lock`, and textlint and its rules with the integrity of `textlint/package-lock.json`, into `~/.cache/lovaizu-checks`.
 
+### Check what Claude Code writes
+
+A Claude Code agent writes the title and body of each Issue and pull request, and each comment on them, with `gh`, and no commit hook sees these texts. To check them, and each file that the agent writes, add this hook to the `.claude/settings.json` of your repository:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "LEFTHOOK_OUTPUT=execution_out lefthook run claude-code --no-auto-install --no-tty --colors off",
+            "timeout": 300
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "LEFTHOOK_OUTPUT=execution_out lefthook run claude-code --no-auto-install --no-tty --colors off",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+lefthook runs the hook at the tag of `lefthook.yml`, so a new tag changes only `lefthook.yml`. Run `lefthook install` after each change of the tag. Until then, Claude Code shows the hook error `hook claude-code doesn't exist in the config`, and the hook checks nothing. The first run installs the tools, so it can take a few minutes.
+
+Before Claude Code runs a Bash command, the hook checks the message of a `git commit`, and the title, body and comment of a `gh issue` or `gh pr` command. A text has no path, so each job of these checks in your `lefthook.yml` checks it, with the settings in the root of the repository. When a finding stops the text, the command doesn't run, and the agent gets the findings. When the command makes a text as it runs, such as from a variable, the hook says that it didn't check it.
+
+After Claude Code writes a file in the repository, by Write, Edit, or a redirect or `tee` of a Bash command, the hook checks it with each job of these checks, with the globs and excludes of `lefthook.yml`.
+
 ## Change a setting
 
 Change a setting when the case of your repository needs it. The people of the repository decide it, not an agent that wants a finding to go away. Write only what you change: the checks lay your file over their defaults. The checks find the settings of each file from the directory of the file up to the root of the repository, and no further. So a settings file applies to each file in its directory and below, and a file with none gets the defaults alone. To leave out a file, use `exclude` of its job in `lefthook.yml`.
@@ -147,4 +188,4 @@ A `.textlintrc.js` or `.textlintrc.cjs` fails the check, as JavaScript can't mer
 - A tool: change its version in `mise.toml`, then run `mise lock --platform linux-x64,linux-arm64,macos-arm64,macos-x64`.
 - textlint or a rule: change its version in `textlint/package.json`, then run `npm install --package-lock-only --ignore-scripts` in `textlint`.
 
-`tests/run.sh` checks that each case in `tests/cases/english` and `tests/cases/japanese` passes, shows, or fails as its name says, and checks each thing that the checks must do with one case. `tests/consumer.sh` checks a repository that names this one, with one language and with both, with its own globs, `.vale.ini` and `.textlintrc`.
+`tests/run.sh` checks that each case in `tests/cases/english` and `tests/cases/japanese` passes, shows, or fails as its name says, and checks each thing that the checks must do with one case. `tests/consumer.sh` checks a repository that names this one, with one language and with both, with its own globs, `.vale.ini` and `.textlintrc`, and the Claude Code hook in a repository with a Japanese job alone.

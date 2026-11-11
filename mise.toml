@@ -3,6 +3,7 @@ jq = "1.8.2"
 vale = "3.25.1"
 lefthook = "2.2.2"
 node = "26.13.0"
+shfmt = "3.14.1"
 
 [tools."http:vale-google"]
 version = "0.7.1"

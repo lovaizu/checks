@@ -120,5 +120,55 @@ pre-commit:
       run: "true"
 YAML
 expect 1 left-out.txt "has no job of lovaizu/checks" "english.yml, japanese.yml, or both"
+# The Claude Code hook, run by the command of the README, in a repository
+# like those of v0.2.0, with a Japanese job alone. Claude Code gives the
+# hook its input on stdin and reads the JSON on stdout.
+command="$(sed -n '/^```json$/,/^```$/p' "$here/README.md" | sed '1d;$d' | jq -r '.hooks.PreToolUse[0].hooks[0].command')"
+[ "$(sed -n '/^```json$/,/^```$/p' "$here/README.md" | sed '1d;$d' | jq -r '.hooks.PostToolUse[0].hooks[0].command')" = "$command" ] ||
+  { echo "Failed: the README should register the same command for both events."; failed=1; }
+git init -q "$dir/claude"
+cd "$dir/claude" || exit 1
+cat >lefthook.yml <<YAML
+remotes:
+  - git_url: $dir/checks
+    ref: test
+    configs:
+      - japanese.yml
+pre-commit:
+  jobs:
+    - name: japanese
+      glob: "*.md"
+YAML
+lefthook install >/dev/null
+# Runs the hook with the input of event $1 for a tool, as jq makes it from
+# the JSON $2 of the tool.
+hook() {
+  jq -n --arg event "$1" --arg cwd "$PWD" --argjson tool "$2" '{hook_event_name: $event, cwd: $cwd} + $tool' | bash -c "$command"
+}
+run=(hook PreToolUse "$(jq -n --arg c "gh pr create --title 'Add the hook' --body '$(cat "$here/tests/cases/japanese/fail-japanese.md")'" '{tool_name: "Bash", tool_input: {command: $c}}')")
+expect 0 systemMessage '"permissionDecision": "deny"' "textlint on the body of gh pr create:" "no-mix-dearu-desumasu (error)"
+run=(hook PreToolUse "$(jq -n --arg c "gh pr create --title 'Add the hook' --body '$(cat "$here/tests/cases/japanese/pass-japanese.md")'" '{tool_name: "Bash", tool_input: {command: $c}}')")
+expect 0 "."
+run=(hook PreToolUse '{"tool_name": "Bash", "tool_input": {"command": "gh issue comment 1 --body \"$text\""}}')
+expect 0 deny "systemMessage" "didn't check the body of gh issue comment"
+# After a Write, the hook checks the file, unless the glob leaves it out.
+cp "$here/tests/cases/japanese/fail-japanese.md" guide.md
+cp "$here/tests/cases/japanese/fail-japanese.md" guide.txt
+run=(hook PostToolUse "$(jq -n --arg f "$PWD/guide.md" '{tool_name: "Write", tool_input: {file_path: $f}}')")
+expect 0 systemMessage '"decision": "block"' "textlint on guide.md:"
+run=(hook PostToolUse '{"tool_name": "Bash", "tool_input": {"command": "cat guide.md > guide.txt"}}')
+expect 0 "."
+
+# A new version in lefthook.yml alone changes the version that the hook
+# runs. Before lefthook fetches it, the hook says so, and Claude Code shows
+# the first line of stderr.
+git -C "$dir/checks" tag next
+sed -i.orig 's/ref: test/ref: next/' lefthook.yml && rm lefthook.yml.orig
+run=(hook PreToolUse '{"tool_name": "Bash", "tool_input": {"command": "git commit -m \"これは文である。これは文です。\""}}')
+expect 1 deny "hook claude-code doesn't exist"
+lefthook install >/dev/null
+[ -d "$(git rev-parse --git-path info/lefthook-remotes/checks-next)" ] || { echo "Failed: lefthook install should fetch the version next."; failed=1; }
+expect 0 systemMessage '"permissionDecision": "deny"' "textlint on the commit message:"
+
 [ "$failed" -eq 0 ] && echo "The consumer cases passed."
 exit "$failed"

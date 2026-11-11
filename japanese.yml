@@ -10,3 +10,14 @@ pre-commit:
       script: prose.sh
       runner: bash
       args: "japanese {staged_files}"
+
+# The Claude Code hook, which a repository runs by `lefthook run
+# claude-code` from its .claude/settings.json, as the README says. It
+# checks with each job of these checks in the repository, so english.yml
+# and japanese.yml both hold it, the same, and lefthook runs it once.
+claude-code:
+  jobs:
+    - name: claude-code
+      script: claude.sh
+      runner: bash
+      use_stdin: true

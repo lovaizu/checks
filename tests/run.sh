@@ -117,5 +117,26 @@ for module in $(grep -ohE 'require\("[^"]+"\)' "$here"/../textlint/*.mjs | sed -
     { echo "Failed: textlint/*.mjs loads $module, which textlint/package.json doesn't name."; failed=1; }
 done
 
+# The Claude Code hook finds in a command each text that it would keep,
+# and each file that it writes, as lib/command-texts.jq says.
+eval "$(MISE_LOCKED=1 MISE_TRUSTED_CONFIG_PATHS="$here/../mise.toml" mise -C "$here/.." env -s bash)"
+texts() {
+  local command="$1" want="$2" got
+  got="$(shfmt --to-json <<<"$command" | jq -c -f "$here/../lib/command-texts.jq")"
+  [ "$got" = "$want" ] || { echo "Failed: lib/command-texts.jq should give $want for: $command"; echo "but it gave: $got"; failed=1; }
+}
+texts "git -C dir commit -m 'One.' --message=\"Two \\\"too\\\".\"" '[{"what":"the commit message","text":"One.\n\nTwo \"too\"."}]'
+texts 'git commit -F - <<EOF
+Line one.
+EOF' '[{"what":"the commit message","text":"Line one.\n"}]'
+texts "gh pr create -t 'A title' --body \"\$(cat <<'EOF'
+A body.
+
+EOF
+)\"" '[{"what":"the title of gh pr create","text":"A title"},{"what":"the body of gh pr create","text":"A body."}]'
+texts 'gh issue comment 3 --body-file notes.md && gh pr review 4 --comment -b "$text"' '[{"what":"the body of gh issue comment","file":"notes.md"},{"what":"the body of gh pr review","text":null}]'
+texts 'gh pr close 5 -c "Done." ; git status' '[{"what":"the body of gh pr close","text":"Done."}]'
+texts 'echo hi | tee -a a.md > b.md' '[{"what":"the file a.md","name":"a.md"},{"what":"the file b.md","name":"b.md"}]'
+
 [ "$failed" -eq 0 ] && echo "All cases passed."
 exit "$failed"
