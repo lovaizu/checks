@@ -20,13 +20,28 @@ const { loadConfig } = require("@textlint/config-loader");
 const { builtInPlugins, loadBuiltinPlugins } = require("textlint/lib/src/loader/TextlintrcLoader.js");
 const { createLinter } = require("textlint");
 
+// The rules of the checks, by their keys in the settings, with the file of
+// each. textlint finds a rule only in node_modules, so the checks load
+// these themselves, with the options of the settings.
+const own = { "ja-no-unneeded-comma": "./unneeded-comma.mjs" };
+
 // Loads settings $config, the $n-th, for textlint.
 async function load(config, n) {
+  const settingsRules = { ...config.rules };
+  const ownRules = [];
+  for (const [ruleId, file] of Object.entries(own)) {
+    const options = settingsRules[ruleId];
+    delete settingsRules[ruleId];
+    if (options === undefined || options === false) continue;
+    const rule = (await import(new URL(file, import.meta.url))).default(require);
+    ownRules.push({ ruleId, rule, options: options === true ? {} : options });
+  }
   const configFilePath = path.join(work, `textlintrc-${n}.json`);
-  fs.writeFileSync(configFilePath, JSON.stringify(config, null, 2));
+  fs.writeFileSync(configFilePath, JSON.stringify({ ...config, rules: settingsRules }, null, 2));
   const loaded = await loadConfig({ configFilePath, node_modulesDir: modules });
   if (!loaded.ok) throw new Error([loaded.error.message, ...loaded.error.errors.map((error) => error.message)].join(": "));
-  const { rules, plugins, filterRules } = loaded.config;
+  const { plugins, filterRules } = loaded.config;
+  const rules = [...loaded.config.rules, ...ownRules];
   // The level that the settings give each rule, by the ID that textlint
   // reports. textlint drops this level from a finding that a rule reports
   // as a plain object, not as a RuleError, as ai-tech-writing-guideline of
