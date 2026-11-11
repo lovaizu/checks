@@ -1,6 +1,0 @@
-# expect: Google.Latin
-# A spec.yaml that isn't a Docker Sandboxes spec reads as YAML.
-openapi: 3.1.0
-info:
-  title: Tools
-image: e.g. this

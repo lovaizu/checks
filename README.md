@@ -4,89 +4,147 @@ The checks that lovaizu repositories share. Each repository names this one in it
 
 ## What it checks
 
-`prose.sh` checks the prose that a repository keeps, and fails on any finding:
+The checks are for the text that people and agents read. They stop text that falls short of the standard, so that the writer looks at it again and rewrites it for its reader.
 
-- English, by [Vale](https://vale.sh) with the [Google developer documentation style](https://developers.google.com/style).
-- Japanese, by `lint.py` of the skill [natural-japanese](https://github.com/coji/natural-japanese).
+Each language has a file and a job of its own, as which languages a repository holds, and in which files, is the case of each repository:
 
-In each file, it reads only the text that the file's format holds as prose for a reader:
+- `english` of `english.yml` checks the English, by [Vale](https://vale.sh) with the [Google developer documentation style](https://developers.google.com/style).
+- `japanese` of `japanese.yml` checks the Japanese, by [textlint](https://textlint.org). It runs these rules:
+  - [`textlint-rule-preset-ja-technical-writing`](https://github.com/textlint-ja/textlint-rule-preset-ja-technical-writing)
+  - [`@textlint-ja/textlint-rule-preset-ai-writing`](https://github.com/textlint-ja/textlint-rule-preset-ai-writing)
+  - [`textlint-rule-ja-hiragana-keishikimeishi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-keishikimeishi), [`textlint-rule-ja-hiragana-hojodoushi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-hojodoushi) and [`textlint-rule-ja-hiragana-fukushi`](https://github.com/lostandfound/textlint-rule-ja-hiragana-fukushi)
+  - [`textlint-rule-ja-space-between-half-and-full-width`](https://github.com/textlint-ja/textlint-rule-ja-space-between-half-and-full-width), with `space: never`
+  - [`textlint-rule-prh`](https://github.com/textlint-rule/textlint-rule-prh), when the repository names its dictionary
+  - The filters [`textlint-filter-rule-allowlist`](https://github.com/textlint/textlint-filter-rule-allowlist) and [`textlint-filter-rule-comments`](https://github.com/textlint/textlint-filter-rule-comments)
 
-| Format | What it reads |
-| --- | --- |
-| Markdown | All the text that it shows, but code and URLs. In front matter, each string field but those that Claude Code defines as a name or a setting, such as `name`, `model` and `allowed-tools`. |
-| Plain text, and any format that this table doesn't name | All of it. |
-| HTML and SVG | The text that the page or the figure shows, such as `<title>`, `<desc>` and `<text>` of SVG, and `alt` text. |
-| JSON, YAML and `.toml` files | Each string value, and the comments. |
-| JSON Schema, named `*.schema.json` | `title`, `description` and `$comment`. |
-| A GitHub workflow or action | The comments, the names, and the descriptions of the action and its inputs and outputs. The `run` of a step reads as a shell script, unless the step names another shell. |
-| A Docker Sandboxes spec: a `spec.yaml` that says `schemaVersion: "2"` and a `kind` of `sandbox` or `mixin` | The comments, `displayName`, each `description`, and the agent instructions. The `command` of `setup.install` reads as a shell script, and so does the `command` of `setup.startup` or the `entrypoint` when it runs `sh -c` or `bash -c`. |
-| The settings of Claude Code and other tools: `plugin.json`, `marketplace.json`, `hooks.json`, `settings.json`, `package.json`, `pyproject.toml`, `mise.toml`, `lefthook.yml` | The comments and each `description`. |
-| `.ini`, `.cfg` and `.coveragerc` files | The comments and the values. |
-| `.vale.ini`, `.gitignore` and `requirements.txt` | The comments. |
-| Shell scripts | The comments, and the words that `echo` and `printf` show on the terminal. |
-| Python, JavaScript, CSS and the other code that Vale knows, and jq | The comments, and the docstrings of Python. |
-| A chezmoi template, such as `*.tmpl` | The comments `{{/* ... */}}`, and the rest as the file that the template makes, without its actions `{{ ... }}`. |
-| A file with no extension | As the program that its first line `#!` names, or as plain text. |
-| A commit message | The subject and the body, but the lines that git leaves out, all below the scissors line, and the trailers, such as `Co-Authored-By`. |
-| A binary file, such as an image | Nothing. |
+Each tool reads a file in the format that its extension names. textlint reads Markdown and plain text, and a file of another format fails the check, with the extensions that textlint reads, so give the job `japanese` only those files. The checks read text in UTF-8 alone. A file in another encoding fails the check. A file with a null byte, such as an image, holds no text, so it passes. A check that a tool fails to run fails too, with all that the tool printed.
 
-The checks read comments and string values as Markdown, so a span in backticks reads as code. A lockfile and a license read as their format says: leave them out, as no one in the repository writes them. lovaizu/checks#12 says where each row comes from.
+A finding at the level warning or error stops the commit. A finding at a lower level, suggestion in Vale and info in textlint, shows in the report and doesn't stop the commit. Each rule keeps the level that its tool gives it.
+
+The report says what the checks are for before the findings, and again in short after them.
 
 ## Use it in a repository
 
-Install [mise](https://mise.jdx.dev/installing-mise.html) and [lefthook](https://lefthook.dev). Then name this repository in `lefthook.yml`, at a tag:
+Install [mise](https://mise.jdx.dev/installing-mise.html) and [lefthook](https://lefthook.dev). Then name this repository in `lefthook.yml`, at a tag, and name in `configs` the file of each language that your repository holds. Neither job has a glob of its own, so a job checks each staged file unless you give it its files with `glob` and `exclude`.
+
+For a repository that holds only English, the job checks each staged file, including the files that hold no prose, such as `LICENSE` and a lockfile, and their findings stop the commit. Leave those files out with `exclude`. Which files to leave out is the case of your repository. For example:
 
 ```yaml
 remotes:
   - git_url: https://github.com/lovaizu/checks
-    ref: v0.1.0
+    ref: v0.2.0
     configs:
-      - hooks.yml
+      - english.yml
+
+pre-commit:
+  jobs:
+    - name: english
+      exclude:
+        - LICENSE
+        - "*.lock"
 ```
+
+For a repository that holds only Japanese, give the job only the files of a format that textlint reads, such as Markdown. Each other file that you stage, such as `lefthook.yml` and `.textlintrc`, fails the check. For example:
+
+```yaml
+remotes:
+  - git_url: https://github.com/lovaizu/checks
+    ref: v0.2.0
+    configs:
+      - japanese.yml
+
+pre-commit:
+  jobs:
+    - name: japanese
+      glob: "*.md"
+```
+
+With the default glob matcher of lefthook, `*.md` matches a Markdown file in any directory.
+
+For a repository that holds both languages, give each job its files, or each job checks the files of the other language too. A file that holds both languages goes to both jobs only if you give it to both. For example, for English files in the root and Japanese files in `docs/ja`:
+
+```yaml
+glob_matcher: doublestar
+remotes:
+  - git_url: https://github.com/lovaizu/checks
+    ref: v0.2.0
+    configs:
+      - english.yml
+      - japanese.yml
+
+pre-commit:
+  jobs:
+    - name: english
+      glob: "*.md"
+      exclude:
+        - "notes/**"
+    - name: japanese
+      glob: "docs/ja/**/*.md"
+```
+
+With [`glob_matcher: doublestar`](https://lefthook.dev/configuration/glob_matcher/), `*.md` matches only the files in the root, and `docs/ja/**/*.md` matches the files in `docs/ja` and below. To turn off a language, leave its file out of `configs`. The settings of the files in `configs` take precedence over those of your `lefthook.yml`, so `skip: true` on a job doesn't turn it off.
+
+From v0.1.x, write `english.yml`, `japanese.yml`, or both in `configs` in place of `hooks.yml`. lefthook skips a file of `configs` that doesn't exist and says nothing, and `ci.sh` fails when no job of these checks remains.
 
 Run `lefthook install` once in each clone. In CI, add this step after `actions/checkout`, at the commit of the same tag:
 
 ```yaml
-- uses: lovaizu/checks@<commit of v0.1.0>
+- uses: lovaizu/checks@<commit of v0.2.0>
 ```
 
-The first run installs the tools of `mise.toml` with the sha256 of `mise.lock`, and natural-japanese and its Python packages into `~/.cache/lovaizu-checks`.
+The first run installs the tools of `mise.toml` with the sha256 of `mise.lock`, and textlint and its rules with the integrity of `textlint/package-lock.json`, into `~/.cache/lovaizu-checks`.
 
-## Leave text out
+## Change a setting
 
-A repository leaves out the text that it doesn't want the checks to read.
+Change a setting when the case of your repository needs it. The people of the repository decide it, not an agent that wants a finding to go away. Write only what you change: the checks lay your file over their defaults. The checks find the settings of each file from the directory of the file up to the root of the repository, and no further. So a settings file applies to each file in its directory and below, and a file with none gets the defaults alone. To leave out a file, use `exclude` of its job in `lefthook.yml`.
 
-To leave out a file, name it in `exclude` of `pre-commit` in `lefthook.yml`:
+### English
+
+Write a `.vale.ini` of your own. Vale reads [`vale/.vale.ini`](vale/.vale.ini) as its defaults, and lays over them the nearest `.vale.ini`, `_vale.ini` or `vale.ini`. For example, to make a rule stop the commit, and to allow the words of your own vocabulary:
+
+```ini
+StylesPath = styles
+Vocab = Team
+
+[*]
+Google.Passive = warning
+```
+
+Vale then reads `styles/config/vocabularies/Team/accept.txt`. To leave out a pattern, such as a path, name it in [`TokenIgnores`](https://vale.sh/docs/keys/tokenignores) or [`BlockIgnores`](https://vale.sh/docs/keys/blockignores). Vale applies them only to the formats of markup, such as Markdown.
+
+### Japanese
+
+Write a `.textlintrc` of your own, in JSON or YAML, or the field `textlint` of `package.json`. textlint reads only one settings file, so the checks merge yours into [`textlint/.textlintrc.json`](textlint/.textlintrc.json), and give textlint the result. For example, to show a rule without stopping the commit, to allow a word, and to name a dictionary of `prh`:
 
 ```yaml
-pre-commit:
-  exclude:
-    - "notes/**"
-    - LICENSE
+rules:
+  preset-ja-technical-writing:
+    sentence-length:
+      severity: info
+  prh:
+    rulePaths:
+      - prh.yml
+filters:
+  allowlist:
+    allow:
+      - 御社
 ```
 
-To leave out a pattern, such as a path, write a `.vale.ini` of your own. Vale uses it for each file in its directory and below, in place of the checks' own `.vale.ini`, and the checks still lay under it how Vale reads each format. Give it the Google style, and the pattern in [`TokenIgnores`](https://vale.sh/docs/keys/tokenignores) or [`BlockIgnores`](https://vale.sh/docs/keys/blockignores):
+Your file changes only the part that it names:
 
-```ini
-[*]
-BasedOnStyles = Google
-TokenIgnores = ([\w.-]+/[\w./-]+)
-```
+- An object adds its keys to those of the defaults, and each value of a key that both have merges the same way.
+- A key with no value, such as `rules:` with nothing under it, changes nothing.
+- `true` turns on a rule and keeps the options of the defaults, including those of a preset.
+- An array adds its items to those of the defaults.
+- `false`, or any other value, takes the place of the default.
+- A rule, a preset or a filter is the same by its short name, such as `prh`, and by the name of its package, such as `textlint-rule-prh`.
+- The checks read a path in the options of `prh` and `allowlist` from the directory of your file.
 
-A pattern applies wherever the checks read Markdown: comments, string values and the text of a figure too. Keep the patterns under `[*]`, as the checks give Vale some of this text in a Markdown file of their own, which a section for a file type doesn't match.
-
-A field of front matter reads as plain text, which a pattern doesn't reach. To leave out a field, name its scope in [`IgnoredScopes`](https://vale.sh/docs/keys/ignoredscopes), before the first section. It adds to the scopes that the checks leave out:
-
-```ini
-IgnoredScopes = text.frontmatter.argument-hint
-```
-
-lint.py doesn't read `.vale.ini`, so leave out a file to skip its Japanese.
+A `.textlintrc.js` or `.textlintrc.cjs` fails the check, as JavaScript can't merge into the defaults. To leave out a part of a file, use the comments of `textlint-filter-rule-comments`, such as `<!-- textlint-disable -->`.
 
 ## Change the checks
 
 - A tool: change its version in `mise.toml`, then run `mise lock --platform linux-x64,linux-arm64,macos-arm64,macos-x64`.
-- natural-japanese: read the new commit in full, then name it in `lib/paths.sh`.
-- The Python packages: see `setup.sh`.
+- textlint or a rule: change its version in `textlint/package.json`, then run `npm install --package-lock-only --ignore-scripts` in `textlint`.
 
-`tests/run.sh` checks that each case in `tests/cases` passes or fails as its name says.
+`tests/run.sh` checks that each case in `tests/cases/english` and `tests/cases/japanese` passes, shows, or fails as its name says, and checks each thing that the checks must do with one case. `tests/consumer.sh` checks a repository that names this one, with one language and with both, with its own globs, `.vale.ini` and `.textlintrc`.

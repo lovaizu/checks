@@ -1,3 +1,0 @@
-{"$comment": "expect: Google.Contractions",
-  "description": "The check does not skip a \"quoted\" word."
-}

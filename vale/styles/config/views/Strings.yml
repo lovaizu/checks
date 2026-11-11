@@ -1,7 +1,0 @@
-# Every string value of a JSON, YAML or `.toml` file, as Markdown, so that a
-# span in backticks reads as code and the TokenIgnores of a repository
-# apply. Vale reads the comments of YAML and `.toml` files too.
-engine: dasel
-scopes:
-  - expr: search(true)
-    type: md

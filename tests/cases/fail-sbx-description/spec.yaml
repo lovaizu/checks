@@ -1,8 +1,0 @@
-# expect: Google.Latin
-schemaVersion: "2"
-kind: mixin
-name: tools
-setup:
-  install:
-    - description: Install a tool, e.g. Vale.
-      command: mise install

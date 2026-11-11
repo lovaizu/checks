@@ -1,15 +1,8 @@
-# The checks of prose.sh. Another script, such as a hook of Claude Code,
-# can source this file and call its functions, such as `check_prose`. Vale
-# checks the English with the Google developer
-# documentation style, and lint.py of the skill natural-japanese checks the
-# Japanese. Each check adds its findings to $report and the reasons that it
-# couldn't run to $notes. Run setup.sh first, as prose.sh does.
-#
-# Issue #12 holds the table of what the checks read in each format. Vale
-# reads each format that it knows, with vale/formats.ini laid under
-# the .vale.ini of the repository. The checks read the rest themselves,
-# and write what they read into a Markdown file at the same line numbers,
-# which Vale and lint.py then read.
+# The checks of prose.sh. Vale checks the English with the Google developer
+# documentation style, and textlint checks the Japanese. Each check adds its
+# findings to $fails or $shows, by the level that the tool gives them, and a
+# note for each file that it didn't check to $notes. Run setup.sh first, as
+# prose.sh does.
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$root/lib/paths.sh"
@@ -17,425 +10,119 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 eval "$(mise -C "$root" env -s bash)"
 VALE_STYLES_PATH="$(mise -C "$root" where http:vale-google)"
 export VALE_STYLES_PATH
-report=""
+fails=""
+shows=""
 notes=()
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# Prints the path of a new file in $work, with extension $1. Each one has
-# a directory of its own, as macOS's mktemp takes no extension.
-new_file() {
-  echo "$(mktemp -d "$work/file.XXXXXX")/text$1"
+# Vale reads vale/.vale.ini as its user-level file, through
+# XDG_CONFIG_HOME, and lays the settings of the repository over it. The
+# copy names the StylesPath of this repository, as Vale reads a relative
+# path from the directory of the file. A file with no settings of the
+# repository gets an empty file.
+mkdir -p "$work/vale-home/vale"
+{
+  echo "StylesPath = $root/vale/styles"
+  grep -v '^StylesPath' "$root/vale/.vale.ini"
+} >"$work/vale-home/vale/.vale.ini"
+: >"$work/vale-empty.ini"
+
+# Adds a note that tool $1 didn't check the files after $2, for reason $2,
+# with all that the tool printed, in $work/out and $work/err. The checks
+# can't tell where the cause is, so the note gives both fixes.
+fail_run() {
+  local tool="$1" reason="$2" files
+  shift 2
+  files="$(printf '%s, ' "$@")"
+  notes+=("$tool didn't check ${files%, }: $reason. Fix: if the output names a file of the repository, correct it. Otherwise, run $root/setup.sh again, and if the check still fails, report it with this message in an issue of $issues."$'\n'"  stdout:"$'\n'"$(sed 's/^/    /' "$work/out")"$'\n'"  stderr:"$'\n'"$(sed 's/^/    /' "$work/err")")
 }
 
-# Prints the .vale.ini that applies in directory $1. A repository that has
-# its own .vale.ini uses it, as Vale itself would. Elsewhere the
-# .vale.ini of this repository applies.
+# Succeeds where file $1 holds text for the tools. A file that isn't
+# there, such as one that the commit deletes, and a file with a NUL byte,
+# such as an image, hold none. The tools read UTF-8 alone, and read other
+# bytes as text that the file doesn't hold, so another file fails.
+is_text() {
+  [ -f "$1" ] || return 1
+  : >"$work/out"
+  tr -d '\000' <"$1" 2>"$work/err" | cmp -s - "$1" 2>>"$work/err"
+  case $? in
+    0) ;;
+    1) return 1 ;;
+    *) fail_run "The checks" "they couldn't read it" "$1"; return 1 ;;
+  esac
+  iconv -f UTF-8 -t UTF-8 "$1" >/dev/null 2>&1 && return
+  notes+=("The checks didn't check $1: it isn't text in UTF-8, the only encoding that they read. Fix: write it in UTF-8, or leave it out of the job, with exclude in lefthook.yml.")
+  return 1
+}
+
+# Adds the findings of report $2 of tool $1, {files: [{file, findings:
+# [{line, check, level, message}]}]}. A finding at the level warning or
+# error goes to $fails, and one at a lower level, suggestion in Vale and
+# info in textlint, to $shows. Fails where jq can't read the report.
+add_findings() {
+  local stops part
+  for stops in true false; do
+    part="$(jq -er --arg tool "$1" --argjson stops "$stops" '[.files[]
+      | (.findings | map(select((.level == "warning" or .level == "error") == $stops))) as $found
+      | select($found | length > 0)
+      | "\($tool) on \(.file):\n" + ($found | map("- Line \(.line), \(.check) (\(.level)): \(.message | sub("\\s+$"; "") | gsub("\n"; "\n  "))") | join("\n"))]
+      | join("\n\n")' <<<"$2" 2>"$work/err")" || return 1
+    [ -n "$part" ] || continue
+    if [ "$stops" = true ]; then fails+="$part"$'\n\n'; else shows+="$part"$'\n\n'; fi
+  done
+}
+
+# Prints the settings of Vale for file $1: the nearest .vale.ini, _vale.ini
+# or vale.ini from its directory up to the root of the repository, the
+# current directory, or the empty file.
 vale_config() {
-  local dir name
-  dir="$(cd "$1" && pwd)"
-  while :; do
-    for name in .vale.ini _vale.ini; do
-      if [ -f "$dir/$name" ]; then
-        echo "$dir/$name"
-        return
-      fi
+  local dir="$PWD/$1" name
+  while [[ "$dir" == "$PWD"/* ]]; do
+    dir="${dir%/*}"
+    for name in .vale.ini _vale.ini vale.ini; do
+      [ ! -f "$dir/$name" ] || { echo "$dir/$name"; return; }
     done
-    [ "$dir" = / ] && break
-    dir="$(dirname "$dir")"
   done
-  echo "$root/vale/.vale.ini"
+  echo "$work/vale-empty.ini"
 }
 
-# Succeeds when the file at path $1, whose text file $2 holds, is the spec
-# of a Docker Sandboxes kit. A kit names its spec spec.yaml, a name that
-# other formats use too, such as OpenAPI, so the spec is the one that
-# says its kind and the schema version 2.
-is_kit() {
-  case "$1" in */spec.yaml) ;; *) return 1 ;; esac
-  yq -e '.schemaVersion == "2" and (.kind == "sandbox" or .kind == "mixin")' "$2" &>/dev/null
-}
-
-# Prints the View by which Vale reads the data file at path $1, or nothing
-# for a file that isn't data. Issue #12 holds the table of what each View
-# reads. $2 is the file that holds the text, when it isn't at path $1.
-view_of() {
-  if is_kit "$1" "${2:-$1}"; then
-    echo Kit
-    return
-  fi
-  case "$1" in
-    */.github/workflows/*.yml | */.github/workflows/*.yaml) echo Workflow ;;
-    */action.yml | */action.yaml) echo Action ;;
-    *.schema.json) echo Schema ;;
-    */.claude-plugin/*.json | */hooks/hooks.json | */.claude/settings*.json | */package.json | */pyproject.toml | \
-      */mise.toml | */.mise.toml | */mise/config.toml | */lefthook.yml | */.lefthook.yml | */config/views/*.yml)
-      echo Description
-      ;;
-    *.json | *.yml | *.yaml | *.toml) echo Strings ;;
-  esac
-}
-
-# Prints the directory to give Vale as XDG_CONFIG_HOME, so that it reads
-# vale/formats.ini as its user-level file, with View $1, if there's one,
-# for the files with extension $2. Vale takes a View only in a section of
-# an extension. Vale reads the comments of a data file as plain text, so
-# it leaves them out, and the checks read them as Markdown, after the View
-# `Comments` finds them.
-layer() {
-  local dir="$work/layer-${1:-none}-$2"
-  if [ ! -d "$dir" ]; then
-    mkdir -p "$dir/vale"
-    {
-      echo "StylesPath = $root/vale/styles"
-      if [ -n "$1" ] && [ "$1" != Comments ]; then
-        sed 's/^IgnoredScopes = /IgnoredScopes = comment, /' "$root/vale/formats.ini"
-      else
-        cat "$root/vale/formats.ini"
-      fi
-      [ -n "$1" ] && printf '\n[*.%s]\nView = %s\n' "$2" "$1"
-    } >"$dir/vale/.vale.ini"
-  fi
-  echo "$dir"
-}
-
-# Runs Vale with config $1 on file $2, read as the file at path $3, with
-# the rest as more options of Vale. $view, when set, names the View in
-# place of the one of the path. Vale reads a relative StylesPath from
-# the directory of its .vale.ini, and gets a file by its path, so that the
-# globs of the sections match it. A file that isn't at path $3, such as a
-# chezmoi template, goes on stdin.
-run_vale() {
-  local config="$1" file="$2" path="$3" home
-  shift 3
-  home="$(layer "${view-$(view_of "$path" "$file")}" "${path##*.}")"
-  if [ "$file" = "$path" ]; then
-    (cd "$(dirname "$config")" && XDG_CONFIG_HOME="$home" vale --no-exit --output=JSON --config="$config" "$@" "$file" 2>&1)
-  else
-    (cd "$(dirname "$config")" && XDG_CONFIG_HOME="$home" vale --no-exit --output=JSON --config="$config" --path="$path" "$@" <"$file" 2>&1)
-  fi
-}
-
-# Runs Vale with config $3 on file $1, read as the file at path $2. $4 is a
-# JSON array of the line numbers to report, or null for all lines. $5 names
-# the text in the report.
+# Runs Vale on each file given, one at a time, with its settings, by
+# --config: without it, Vale would read VALE_CONFIG_PATH or the .vale.ini
+# of the home directory in place of the settings of the repository. Vale
+# runs in the directory of its settings, where it reads a relative path of
+# them from, and reads each file in the format that its extension names.
 check_english() {
-  local file="$1" path="$2" config="$3" lines="$4" label="$5" out found
-  if ! command -v vale &>/dev/null; then
-    notes+=("Vale isn't installed, so the check skipped the English. Fix: run $root/setup.sh.")
-    return
-  fi
-  out="$(run_vale "$config" "$file" "$path")"
-  if ! found="$(jq -r --argjson lines "$lines" '
-    [.[] | .[] | select($lines == null or (.Line as $n | $lines | index($n)))] | .[] |
-    "- Line \(.Line), \(.Check) (\(.Severity)): \(.Message)"' <<<"$out" 2>/dev/null)"; then
-    # A Vale error is a JSON object whose Text says why.
-    notes+=("Vale didn't check $label with $config: $(jq -r '.Text // empty' <<<"$out" 2>/dev/null || head -c 300 <<<"$out")")
-    return
-  fi
-  if [ -n "$found" ]; then
-    report+="Vale on $label, with $config:"$'\n'"$found"$'\n\n'
-  fi
-}
-
-# Runs lint.py on Markdown file $1, when the lines $2 hold kana. $2 is a
-# JSON array of the line numbers to report, or null for all lines. $3 names
-# the text in the report.
-check_japanese() {
-  local file="$1" lines="$2" label="$3" lint out found japanese
-  # lint.py reads only the lines that are mostly Japanese. An English line
-  # with a Japanese name in it, such as ⌘英かな, stays out, as lint.py
-  # would read it as Japanese and judge the English. The last line counts
-  # too when no newline ends it.
-  japanese="$(new_file .md)"
-  jq -Rsr '
-    def count(re): [scan(re)] | length;
-    rtrimstr("\n") | split("\n")[] |
-    if count("[\\p{Hiragana}\\p{Katakana}\\p{Han}]") > count("[A-Za-z]") then . else "" end' "$file" >"$japanese"
-  if ! jq -Rse --argjson lines "$lines" '
-    split("\n") as $all | (if $lines == null then $all else [$lines[] | $all[. - 1]] end) |
-    join("\n") | test("[\\p{Hiragana}\\p{Katakana}]")' "$japanese" >/dev/null; then
-    return
-  fi
-  file="$japanese"
-  lint="$natural_japanese/skills/natural-japanese/scripts/lint.py"
-  python="$venv/bin/python"
-  if [ ! -f "$lint" ] || [ ! -x "$python" ]; then
-    notes+=("The skill natural-japanese or its Python packages aren't installed, so the check skipped the Japanese. Fix: run $root/setup.sh.")
-    return
-  fi
-  # The packages come from the virtual environment that setup.sh makes
-  # with their sha256 checked. Python writes no bytecode, so that the
-  # skill's directory stays as fetched.
-  if ! out="$(PYTHONDONTWRITEBYTECODE=1 "$python" "$lint" --json --reading-load "$file" 2>&1)" ||
-    ! found="$(jq -r --argjson lines "$lines" '
-      [.findings[], (.reading_load.findings // [])[]] |
-      map(select($lines == null or (.line as $n | $lines | index($n)))) | .[] |
-      "- Line \(.line), \(.category) (\(.severity)): \(.detail) 「\(.excerpt)」" +
-      (if .hint then " Hint: \(.hint)" else "" end)' <<<"$out" 2>/dev/null)"; then
-    notes+=("lint.py didn't check $label: $(head -c 300 <<<"$out")")
-    return
-  fi
-  if [ -n "$found" ]; then
-    report+="lint.py of natural-japanese on $label:"$'\n'"$found"$'\n\n'
-  fi
-}
-
-# Prints, as {line, text}, each line of the prose that Vale reads in file
-# $1, read as the file at path $2, with the settings of the checks. The
-# rule `Lovaizu.Text` finds each line, from its first word to its end. It
-# fails when Vale can't read the file.
-vale_text() {
-  run_vale "$root/vale/text.ini" "$1" "$2" |
-    jq -c '[.[] | .[] | {line: .Line, text: .Match}]' 2>/dev/null
-}
-
-# Writes the text in $2, a JSON array of {line, text}, into a Markdown file
-# at the same line numbers as file $1, and prints its path. One line holds
-# each text that starts on it.
-at_lines() {
-  local out
-  out="$(new_file .md)"
-  jq -r --argjson n "$(wc -l <"$1")" '
-    (group_by(.line) | map({(.[0].line | tostring): (map(.text) | join(" "))}) | add // {}) as $at |
-    range(1; $n + 2) | $at[tostring] // ""' <<<"$2" >"$out"
-  echo "$out"
-}
-
-# Prints, as {line, text}, the comment lines of file $1: each line whose
-# first character, past any space, is one of $2, such as `#;`.
-comment_lines() {
-  jq -Rsc --arg marks "$2" '[split("\n") | to_entries[] |
-    (.value | capture("^\\s*[" + $marks + "]+\\s?(?<text>.*)$")) as $m | {line: (.key + 1), text: $m.text}]' "$1"
-}
-
-# Prints, as {line, text}, the comments of jq program $1: from a # that
-# isn't in a string to the end of its line.
-jq_comments() {
-  jq -Rsc '[split("\n") | to_entries[] |
-    (.value | gsub("\"(\\\\.|[^\"\\\\])*\""; "") | capture("#\\s?(?<text>.*)$")) as $m |
-    {line: (.key + 1), text: $m.text}]' "$1"
-}
-
-# Prints, as {line, text}, the comment lines and the values of file $1, in
-# the format of a `.ini` file.
-# A value goes on after its key, past = or :, and on the indented lines
-# that follow it. Section names and keys aren't prose.
-ini_prose() {
-  jq -Rsc '[split("\n") | to_entries[] | .key += 1 |
-    if .value | test("^\\s*[;#]") then {line: .key, text: (.value | sub("^\\s*[;#]+\\s?"; ""))}
-    elif .value | test("^\\s*\\[") then empty
-    elif .value | test("^\\s+\\S") then {line: .key, text: (.value | sub("^\\s+"; ""))}
-    elif .value | test("[=:]") then {line: .key, text: (.value | sub("^[^=:]*[=:]\\s*"; ""))}
-    else empty end]' "$1"
-}
-
-# Prints, as {line, text}, the prose of shell script $1: its comments, and
-# the words that echo and printf show. The first line #!, a directive of
-# shellcheck, and echo or printf that writes to a file aren't prose. It
-# fails when shfmt can't parse the script, with $2 as the name of the
-# script, from which shfmt takes its dialect.
-shell_prose() {
-  local tree
-  # shfmt can't parse a template's `{{ ... }}`, nor an expression
-  # `${{ ... }}` of a workflow, so each one reads as x.
-  tree="$(sed 's/{{[^}]*}}/x/g' "$1" | shfmt --to-json --filename "${2:-script.sh}" 2>/dev/null)" || return 1
-  jq -c -f "$root/lib/shell-prose.jq" <<<"$tree"
-}
-
-# Prints, as {line, text}, the prose of the shell script that each step of
-# a GitHub workflow or action, or each job of a lefthook config, at YAML
-# file $1 runs: the run of a step whose shell is bash or sh, as GitHub
-# runs it.
-run_prose() {
-  scripts_prose "$1" '.. | select(tag == "!!str") |
-    select((path | .[-1]) == "run" and (path | .[-3]) == "steps" and ((parent | .shell // "bash") | test("^(ba)?sh")))'
-}
-
-# Prints, as {line, text}, the prose of each command of the Docker
-# Sandboxes spec at YAML file $1 that runs in a shell. sbx runs the string
-# of setup.install by sh -c. It runs the list of setup.startup, and the
-# list of the entrypoint, with no shell, so a list holds a script only
-# when it runs sh or bash with -c. Its other items are names and flags.
-kit_prose() {
-  scripts_prose "$1" '(.setup.install[]?.command | select(tag == "!!str")),
-    ((.setup.startup[]?.command, .sandbox.entrypoint) | select(tag == "!!seq") |
-      select((.[0] // "" | test("^(.*/)?(ba)?sh$")) and (.[1] // "" | test("^-[a-z]*c[a-z]*$"))) |
-      .[2] | select(tag == "!!str"))'
-}
-
-# Prints, as {line, text}, the prose of each shell script in YAML file $1:
-# each string that yq expression $2 picks.
-scripts_prose() {
-  local file="$1" steps step script start all='[]'
-  steps="$(yq -p yaml -o json -I0 "[($2) |
-    {\"line\": line, \"text\": ., \"block\": (style == \"literal\" or style == \"folded\")}]" "$file" 2>/dev/null)" || return 1
-  while IFS= read -r step; do
-    script="$(new_file .sh)"
-    jq -r .text <<<"$step" >"$script"
-    # A block scalar starts on the line after its key.
-    start="$(jq '.line + (if .block then 1 else 0 end)' <<<"$step")"
-    all="$(jq -sc --argjson start "$start" '.[0] + (.[1] | map(.line += $start - 1))' \
-      <<<"$all $(shell_prose "$script" || echo '[]')")"
-  done < <(jq -c '.[]' <<<"$steps")
-  echo "$all"
-}
-
-# Writes chezmoi template $1 with each action `{{ ... }}` as spaces into a
-# new file, and prints its path. The text keeps its lines and columns.
-template_text() {
-  local out
-  out="$(new_file "")"
-  jq -Rrsj 'gsub("(?<a>\\{\\{[\\s\\S]*?\\}\\})"; .a | gsub("[^\n]"; " "))' "$1" >"$out"
-  echo "$out"
-}
-
-# Prints, as {line, text}, the lines of each comment `{{/* ... */}}` of
-# chezmoi template $1.
-template_comments() {
-  jq -Rsc '. as $all | [match("\\{\\{-?\\s*/\\*(?<c>[\\s\\S]*?)\\*/\\s*-?\\}\\}"; "g") |
-    .captures[0] as $c | ($all[0:$c.offset] | [scan("\n")] | length) as $before |
-    $c.string | split("\n") | to_entries[] |
-    {line: ($before + .key + 1), text: (.value | sub("^\\s+"; "") | sub("\\s+$"; ""))} | select(.text != "")]' "$1"
-}
-
-# Prints the name by which the checks read a chezmoi template at path $1:
-# its name without .tmpl and the prefixes of chezmoi's attributes, such as
-# dot_ for a leading dot.
-template_name() {
-  local name="${1##*/}" before=""
-  name="${name%.tmpl}"
-  while [ "$name" != "$before" ]; do
-    before="$name"
-    name="$(sed -E 's/^(create|modify|remove|run|once|onchange|before|after|exact|private|readonly|empty|executable|symlink|encrypted|literal)_//' <<<"$name")"
+  local file config status
+  for file in "$@"; do
+    is_text "$file" || continue
+    config="$(vale_config "$file")"
+    (path="$PWD/$file" && cd "${config%/*}" && XDG_CONFIG_HOME="$work/vale-home" vale --config="$config" --no-exit --output=JSON "$path") >"$work/out" 2>"$work/err"
+    status=$?
+    if [ "$status" -ne 0 ]; then
+      fail_run Vale "Vale exited $status" "$file"
+    elif ! add_findings Vale "$(jq --arg file "$file" '{files: [{file: $file, findings: [.[][] | {line: .Line, check: .Check, level: .Severity, message: .Message}]}]}' "$work/out" 2>"$work/err")"; then
+      fail_run Vale "jq couldn't read its report" "$file"
+    fi
   done
-  case "$name" in dot_*) name=".${name#dot_}" ;; esac
-  echo "$name"
 }
 
-# Prints how the checks read file $1 with name $2, as one of these words:
-#
-# - `md` for Markdown and plain text, which lint.py reads too.
-# - `vale:` and an extension, such as `vale:py`, for another format that
-#   Vale reads as that extension.
-# - `html` for HTML and SVG.
-# - `shell`, `jq` or `ini` for a format that the checks read themselves.
-# - `vale-ini` for the settings of Vale.
-# - `comments` for a file that holds only patterns and comment lines.
-# - `none` for a file that holds no prose.
-reader() {
-  local file="$1" name="$2" first
-  case "$name" in
-    .chezmoiroot | .chezmoiversion) echo none ;;
-    .vale.ini | _vale.ini | vale.ini) echo vale-ini ;;
-    .gitignore | .chezmoiignore | .chezmoiremove | requirements*.txt | requirements*.in) echo comments ;;
-    .coveragerc | *.ini | *.cfg) echo ini ;;
-    *.jq) echo jq ;;
-    .bashrc | .bash_profile | .bash_logout | .profile | .zshrc | .zprofile | .zshenv | .zlogin | *.sh | *.bash | *.zsh) echo shell ;;
-    *.md | *.markdown | *.mdx | *.txt) echo md ;;
-    *.html | *.htm | *.svg) echo html ;;
-    *.json | *.yml | *.yaml | *.toml) echo "vale:${name##*.}" ;;
-    *.c | *.h | *.cc | *.cpp | *.cs | *.css | *.go | *.java | *.js | *.jsx | *.mjs | *.cjs | *.kt | *.less | *.lua | *.php | *.py | *.rb | *.rs | *.sass | *.scss | *.swift | *.ts | *.tsx | *.mts | *.cts) echo "vale:${name##*.}" ;;
-    *.*) echo vale:txt ;;
-    *)
-      # A file with no extension, such as an executable, reads as the
-      # program that its first line names.
-      first="$(head -n 1 "$file" 2>/dev/null)"
-      case "$first" in
-        '#!'*python*) echo vale:py ;;
-        '#!'*node*) echo vale:js ;;
-        '#!'*sh | '#!'*sh' '* | '#!'*' '*sh) echo shell ;;
-        *) echo vale:txt ;;
-      esac
-      ;;
-  esac
-}
-
-# Checks the prose of file $1 that Vale and lint.py can read, as issue #12
-# says. $2 is a JSON array of the line numbers to report, or null for all
-# lines. $3 is the .vale.ini to use.
-check_prose() {
-  local file="$1" lines="$2" config="$3" name="${1##*/}" text="$1" path="$1" kind prose='[]' more ext
-  # A binary file, such as an image, holds no text.
-  grep -Iq . "$file" || return
-  # A chezmoi template reads as the file that it makes, with its actions
-  # as spaces, and its comments `{{/* ... */}}` read as prose. chezmoi
-  # reads a file named modify_* as a template when the file holds
-  # chezmoi:modify-template.
-  if [ "$name" != "${name%.tmpl}" ] || { [ "$name" != "${name#modify_}" ] && grep -q 'chezmoi:modify-template' "$file"; } ||
-    case "$file" in */.chezmoitemplates/* | */.chezmoiignore | */.chezmoiremove) true ;; *) false ;; esac; then
-    name="$(template_name "$file")"
-    text="$(template_text "$file")"
-    path="$(dirname "$file")/$name"
-    prose="$(template_comments "$file")"
-    # A template that's all actions, such as one that modifies a file,
-    # holds nothing more.
-    grep -q '[^[:space:]]' "$text" || name=""
-  fi
-  kind="$(reader "$text" "$name")"
-  [ -n "$name" ] || kind=none
-  more='[]'
-  case "$kind" in
-    md)
-      check_english "$text" "$path" "$config" "$lines" "$file"
-      check_japanese "$text" "$lines" "$file"
-      ;;
-    vale:*)
-      ext="${kind#vale:}"
-      # A file with no extension reads as the program that it runs.
-      [ "${name##*.}" = "$ext" ] || path="$path.$ext"
-      check_english "$text" "$path" "$config" "$lines" "$file"
-      if ! more="$(vale_text "$text" "$path")"; then
-        more='[]'
-        notes+=("Vale couldn't read $file, so the check didn't check its Japanese.")
-      fi
-      # The comments of a data file, and the run of each step, go into the
-      # Markdown file below.
-      if [ -n "$(view_of "$path" "$text")" ]; then
-        prose="$(jq -sc 'add' <<<"$prose $(view=Comments vale_text "$text" "$path" || echo '[]')")"
-      fi
-      case "$path" in
-        */.github/workflows/*.yml | */.github/workflows/*.yaml | */action.yml | */action.yaml)
-          prose="$(jq -sc 'add' <<<"$prose $(run_prose "$text" || echo '[]')")"
-          ;;
-      esac
-      if is_kit "$path" "$text"; then
-        prose="$(jq -sc 'add' <<<"$prose $(kit_prose "$text" || echo '[]')")"
-      fi
-      ;;
-    html)
-      # Vale reads the text of HTML with the settings of the checks, as the
-      # TokenIgnores of a repository can match inside a tag, such as the
-      # URL of xmlns, and break the markup. The text then reads as Markdown
-      # with the settings of the repository.
-      if ! more="$(vale_text "$text" "${path%.*}.html")"; then
-        more='[]'
-        notes+=("Vale couldn't read $file, so the check didn't check its text.")
-      fi
-      prose="$(jq -sc 'add' <<<"$prose $more")"
-      more='[]'
-      ;;
-    shell)
-      if ! more="$(shell_prose "$text" "$name")"; then
-        more='[]'
-        notes+=("shfmt couldn't parse $file, so the check didn't check its text. Fix: make it valid, or leave it out with exclude in lefthook.yml.")
-      fi
-      prose="$(jq -sc 'add' <<<"$prose $more")"
-      more='[]'
-      ;;
-    ini) prose="$(jq -sc 'add' <<<"$prose $(ini_prose "$text")")" ;;
-    vale-ini) prose="$(jq -sc 'add' <<<"$prose $(comment_lines "$text" '#;')")" ;;
-    comments) prose="$(jq -sc 'add' <<<"$prose $(comment_lines "$text" '#')")" ;;
-    jq) prose="$(jq -sc 'add' <<<"$prose $(jq_comments "$text")")" ;;
-  esac
-  # The Japanese of the text that Vale read, which lint.py reads only in a
-  # Markdown file.
-  if [ "$more" != "[]" ]; then
-    check_japanese "$(at_lines "$file" "$more")" "$lines" "$file"
-  fi
-  if [ "$prose" != "[]" ]; then
-    text="$(at_lines "$file" "$prose")"
-    check_english "$text" "$text" "$config" "$lines" "$file"
-    check_japanese "$text" "$lines" "$file"
+# Runs textlint once on all the files given, by textlint/check.mjs, which
+# says how it checks each file and writes its report to
+# $work/textlint.json. Each file of a format that textlint doesn't read
+# fails, with the formats that it reads.
+check_japanese() {
+  local file texts=() status formats
+  for file in "$@"; do is_text "$file" && texts+=("$file"); done
+  [ "${#texts[@]}" -gt 0 ] || return 0
+  node "$root/textlint/check.mjs" "$textlint_dir/node_modules" "$work" "${texts[@]}" >"$work/out" 2>"$work/err"
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    fail_run textlint "Node exited $status" "${texts[@]}"
+  elif ! add_findings textlint "$(cat "$work/textlint.json")" || ! formats="$(jq -r '.notes | group_by(.reason)[]
+    | "textlint didn'"'"'t check \(map(.file) | join(", ")): \(.[0].reason). Fix: leave each file out of the job japanese, with glob or exclude in lefthook.yml."' "$work/textlint.json" 2>"$work/err")"; then
+    fail_run textlint "jq couldn't read its report" "${texts[@]}"
+  elif [ -n "$formats" ]; then
+    mapfile -t -O "${#notes[@]}" notes <<<"$formats"
   fi
 }

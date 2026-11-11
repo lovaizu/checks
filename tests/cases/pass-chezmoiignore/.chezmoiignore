@@ -1,5 +1,0 @@
-# The files that a machine doesn't need.
-{{ if ne (env "SHELL" | base) "zsh" }}
-.zshrc (e.g.)
-{{ end }}
-.local/bin/e.g.; that

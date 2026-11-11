@@ -1,11 +1,13 @@
-# The checks of this repository: the same ones that it shares. The cases of
-# tests/cases have findings on purpose, and the license and mise.lock hold
-# no prose of this repository, so the check leaves them out.
+# The checks of this repository: the English one that it shares, on its
+# Markdown, as Vale reads the other files here as plain text, with the code
+# in them. This repository holds no Japanese, so it doesn't extend
+# japanese.yml. The cases of tests/cases have findings on purpose.
 extends:
-  - hooks.yml
+  - english.yml
 
 pre-commit:
-  exclude:
-    - "tests/cases/**"
-    - LICENSE
-    - mise.lock
+  jobs:
+    - name: english
+      glob: "*.md"
+      exclude:
+        - "tests/cases/**"

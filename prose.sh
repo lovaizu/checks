@@ -1,53 +1,63 @@
 #!/bin/bash
-# Checks the prose of each file given, and fails on any finding. Vale checks
-# the English with the Google developer documentation style, and lint.py of
-# the skill natural-japanese checks the Japanese. README.md says what text it reads. It takes
-# the paths of the files, after --message when they're commit messages. A
-# check that can't run fails too, as it would let a finding through.
+# Checks the prose of each file given, in the language that the first
+# argument names: english, by Vale with the Google developer documentation
+# style, or japanese, by textlint. The repository chooses the files of each
+# language, with the glob of each job in its lefthook.yml.
+# A finding at the level warning or error fails, and a finding at a lower
+# level shows in the report. A check that can't run fails too, as it would
+# let a finding through.
 set -uo pipefail
+# cd follows CDPATH for a relative path, which would lead each path below to
+# another directory.
+unset CDPATH
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 "$here/setup.sh" || exit 1
 . "$here/lib/lib.sh"
 
-message=""
-if [ "${1:-}" = --message ]; then
-  message=1
-  shift
-fi
-for file in "$@"; do
-  # A link is the file that it points to, which the check reads apart.
-  [ -f "$file" ] && [ ! -L "$file" ] || continue
-  case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
-  if [ -n "$message" ]; then
-    # git leaves out the lines that start with #, and all below the
-    # scissors line that `git commit --verbose` writes before the diff, so
-    # the check does too. The trailers of the last paragraph, such as
-    # Co-Authored-By, are fields, not prose. Each line left out stays as an
-    # empty line, so that the line numbers of the findings stay those of
-    # the message.
-    text="$(new_file .md)"
-    awk '/^# -+ >8 -+$/ { cut = 1 } { print (cut || /^#/) ? "" : $0 }' "$file" | awk '
-      { line[NR] = $0 }
-      END {
-        last = NR
-        while (last > 0 && line[last] == "") last--
-        first = last
-        while (first > 0 && line[first] ~ /^[A-Za-z][A-Za-z0-9-]*: /) first--
-        if (first < last && (first == 0 || line[first] == "")) for (i = first + 1; i <= last; i++) line[i] = ""
-        for (i = 1; i <= NR; i++) print line[i]
-      }' >"$text"
-    check_english "$text" "$text" "$(vale_config "$PWD")" null "the commit message"
-    check_japanese "$text" null "the commit message"
-  else
-    check_prose "$file" null "$(vale_config "$(dirname "$file")")"
-  fi
-done
+language="${1:-}"
+case "$language" in
+  english) check=check_english ;;
+  japanese) check=check_japanese ;;
+  *)
+    echo "prose.sh: the first argument must be english or japanese, not '${1:-}'." >&2
+    exit 1
+    ;;
+esac
+shift
+# The current directory with no link in it, the root of the repository,
+# where the search for settings ends.
+cd -P . || exit 1
+"$check" "$@"
 
 if [ "${#notes[@]}" -gt 0 ]; then
   printf 'prose.sh: %s\n' "${notes[@]}" >&2
 fi
-if [ -n "$report" ]; then
-  printf '%s' "${report//$PWD\//}"
-  exit 1
+# The report says what the checks are for, before the findings and again
+# after them, so that a writer rewrites each part for its reader and
+# doesn't only swap the words of a finding. Issue #17 holds the reason.
+if [ -n "$fails$shows" ]; then
+  cat <<'EOF'
+The checks found text that its reader may not understand. Each finding marks
+text to rethink, not words to swap. Find what the reader needs from the
+text, and rewrite the sentence or the paragraph for that. Keep each fact,
+condition and example that the text holds. Don't reword a sentence only to
+clear a finding: a rewrite that clears it and loses the meaning is worse
+than the finding.
+
+EOF
+  if [ -n "$fails" ]; then
+    echo "These findings stop the commit:"
+    echo
+    printf '%s' "$fails"
+  fi
+  if [ -n "$shows" ]; then
+    echo "These findings don't stop the commit. Rethink each one too:"
+    echo
+    printf '%s' "$shows"
+  fi
+  cat <<'EOF'
+Rewrite each part for its reader. Don't reword a sentence only to clear
+a finding.
+EOF
 fi
-[ "${#notes[@]}" -eq 0 ]
+[ -z "$fails" ] && [ "${#notes[@]}" -eq 0 ]

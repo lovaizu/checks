@@ -1,3 +1,0 @@
-# Reads `plugins/best-practice.md`, as the TokenIgnores of the cases leave
-# out, and `ubuntu-latest` as code.
-key: value
