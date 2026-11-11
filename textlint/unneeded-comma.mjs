@@ -1,26 +1,25 @@
-// The textlint rule ja-no-unneeded-comma, which finds a comma (、) after a
-// short clause at the head of a short sentence, where the clause can modify
-// only one part of the rest of the sentence. A comma marks a break in the
+// The textlint rule ja-no-unneeded-comma, which finds a comma (、) after the
+// clause at the head of a sentence, where the clause can modify only one
+// part of the rest of the sentence. A comma marks a break in the
 // structure of a sentence, so there it marks nothing that the reader
 // doesn't already see, as in 設定は、利用側が決めます. Issue #20 holds the
 // reason.
 //
-// A comma stays where the rest of the sentence holds a clause of its own,
-// such as 走る of 急いで走る犬を追った: the clause at the head could modify
-// either predicate, and the comma tells which. It stays too where a
-// hiragana follows it, as the hiragana would run into those before it.
+// A comma stays where the word right after it could modify both a
+// predicate inside the rest and the one at its end, as 急いで of
+// 彼は、急いで走る犬を追った: the comma tells which one it modifies.
 //
 // check.mjs loads the rule with the modules of textlint: the default
 // export takes the function require of those modules, and returns the rule.
 
-// The thresholds come from real documents, as the pull request of issue #20
-// says: up to them, nearly each sentence that the rule finds reads better
-// without the comma.
+// The thresholds come from Japanese that people and AI wrote, as the pull
+// request of issue #20 says: up to them, nearly each sentence that the rule
+// finds reads better without the comma.
 const defaults = {
   // The most characters of the clause at the head, before the comma.
-  maxHead: 15,
+  maxHead: 30,
   // The most characters of the sentence, without its spaces.
-  maxSentence: 40,
+  maxSentence: 60,
 };
 
 // The particles that end a clause at the head: は and も, で and に, ので
@@ -52,6 +51,27 @@ function endsClause(t, u) {
   return false;
 }
 
+// Whether the word right after the comma, the first of $rest, could modify
+// both a predicate inside the rest of the sentence and the one at its end.
+// Such a word modifies a predicate: an adverb, or a verb or an adjective
+// that doesn't modify the noun after it. The predicate at the end is a
+// verb or an adjective, as a noun, such as 状態 of よい状態です, takes no
+// such word.
+function eitherPredicate(rest) {
+  const serves = (t) => ["助動詞", "助詞"].includes(t.pos) || ["非自立", "接尾"].includes(t.pos_detail_1);
+  let from = 1;
+  if (rest[0].pos === "動詞" || rest[0].pos === "形容詞") {
+    while (from < rest.length && serves(rest[from])) from++;
+    if (rest[from]?.pos === "名詞") return false;
+  } else if (rest[0].pos !== "副詞") return false;
+  const end = rest.findLastIndex((t) => !serves(t));
+  if (end < from || !["動詞", "形容詞"].includes(rest[end].pos)) return false;
+  for (let i = from; i < end; i++) {
+    if (endsClause(rest[i], rest[i + 1])) return true;
+  }
+  return false;
+}
+
 // The heads that link the sentence to the one before it, such as 一方で,
 // ほかに, その上で, まだその上に, 続けて, 最後に, 第3に and 反対に. The comma
 // after them marks that link.
@@ -68,10 +88,11 @@ function isConnective(head) {
 const contrasts = new Set(["が", "のに", "けど", "けれど", "けれども", "ものの", "し"]);
 
 // A topic or a subject. A head with one, and that ends in で, is a
-// predicate of its own, as in 振込は自動で、通常は3営業日. One that ends in
-// a case particle, where the rest of the sentence has a topic too, lists
-// two, as in Aは付録Aに、Bは付録Bに. One that ends in て, where the rest has
-// a subject too, joins two clauses, as in 血が流れて、彼は即死した.
+// predicate of its own, as in 振込は自動で、通常は3営業日. A head with a
+// topic, where the rest of the sentence has a topic too, sets two side by
+// side, as in Aは付録Aに、Bは付録Bに and Aについては、Bでは. One that ends in
+// て, where the rest has a subject too, joins two clauses, as in
+// 血が流れて、彼は即死した.
 const isSubject = (t) => t.pos === "助詞" && ((t.pos_detail_1 === "係助詞" && /^[はも]$/.test(t.surface_form)) || (t.pos_detail_1 === "格助詞" && t.surface_form === "が"));
 
 // Whether the word before the comma and the word after it are the same,
@@ -86,7 +107,6 @@ function sameWord(head, rest) {
   return (a.basic_form !== "*" && a.basic_form === b.basic_form) || (stem(a) !== undefined && stem(a) === stem(b));
 }
 
-const hiragana = /^[ぁ-ゟ]/;
 const opens = /[「『（(［\[【〈《]/g;
 const closes = /[」』）)］\]】〉》]/g;
 const bare = (s) => s.replace(/[\s。．.!?！？]/g, "");
@@ -112,17 +132,15 @@ export function firstComma(text, tokens) {
   if ((before.match(opens) || []).length !== (before.match(closes) || []).length) return fact("bracket");
   const last = head[head.length - 1];
   if (last.pos !== "助詞" || !headEnds.has(last.pos_detail_1)) return fact("head");
-  if (hiragana.test(text.slice(comma + 1).trimStart())) return fact("hiragana");
   if (isConnective(head)) return fact("connective");
   if (last.pos_detail_1 === "接続助詞" && contrasts.has(last.surface_form)) return fact("contrast");
   const topic = head.slice(0, -1).some(isSubject);
   if (topic && last.surface_form === "で") return fact("predicate");
-  if (topic && last.pos_detail_1 === "格助詞" && rest.some((t) => t.pos === "助詞" && t.pos_detail_1 === "係助詞" && t.surface_form === "は")) return fact("parallel");
+  const isTopic = (t) => t.pos === "助詞" && t.pos_detail_1 === "係助詞" && t.surface_form === "は";
+  if (head.some(isTopic) && last.pos_detail_1 !== "接続助詞" && rest.some(isTopic)) return fact("parallel");
   if (topic && /^[てで]$/.test(last.surface_form) && last.pos_detail_1 === "接続助詞" && rest.some(isSubject)) return fact("clauses");
   if (sameWord(head, rest)) return fact("repeat");
-  for (let i = 0; i < rest.length - 1; i++) {
-    if (endsClause(rest[i], rest[i + 1])) return fact("clause");
-  }
+  if (eitherPredicate(rest)) return fact("either");
   return fact(null);
 }
 
@@ -155,7 +173,7 @@ export default (require) => {
             const at = sentence.range[0] - node.range[0] + source.originalIndexFromIndex(index);
             report(
               node,
-              new RuleError("文頭の短い節のあとの読点です。この節がかかる先は一つしかないので、読点は文の切れ目を示していません。読点を消した文のほうが読みやすいなら、消してください。", {
+              new RuleError("文頭の節のあとの読点です。この節がかかる先は一つしかないので、読点は文の切れ目を示していません。読点を消した文のほうが読みやすいなら、消してください。", {
                 padding: locator.range([at, at + 1]),
               }),
             );

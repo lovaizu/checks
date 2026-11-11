@@ -115,7 +115,7 @@ want "a file in Latin-1" 1 "The checks didn't check latin1.md: it isn't text in 
 mkdir -p "$tmp/comma"
 cp "$here/cases/japanese/fail-japanese-comma.md" "$tmp/comma/"
 run_in "$tmp/comma" japanese fail-japanese-comma.md
-[ "$(grep -c 'ja-no-unneeded-comma (error)' <<<"$out")" -eq 3 ] || { echo "Failed: each sentence of fail-japanese-comma.md should get ja-no-unneeded-comma (error), but got:"; echo "$out"; failed=1; }
+[ "$(grep -c 'ja-no-unneeded-comma (error)' <<<"$out")" -eq 4 ] || { echo "Failed: each sentence of fail-japanese-comma.md should get ja-no-unneeded-comma (error), but got:"; echo "$out"; failed=1; }
 printf '{"rules": {"ja-no-unneeded-comma": {"severity": "info"}}}\n' >"$tmp/comma/.textlintrc.json"
 run_in "$tmp/comma" japanese fail-japanese-comma.md
 want "ja-no-unneeded-comma at the level info" 0 "ja-no-unneeded-comma (info)"
